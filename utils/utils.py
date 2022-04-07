@@ -1213,7 +1213,6 @@ def define_init_weights(model, init_w='normal', activation='relu'):
 def weights_init_normal(m):
     classname = m.__class__.__name__
 #    print(classname)
-    # torch.manual_seed(1)
     if classname.find('Conv') != -1 or classname.find('ConvTranspose') != -1:
         try:
             init.normal_(m.weight.data, 0.0, 0.02)

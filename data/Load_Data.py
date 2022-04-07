@@ -1,3 +1,19 @@
+# ==============================================================================
+# Copyright (c) 2022 The PersFormer Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
 import sys
 import pickle
 import os
@@ -41,6 +57,7 @@ class LaneDatasetv2(Dataset):
         This new version of data loader prepare ground-truth anchor tensor in flat ground space.
         It is assumed the dataset provides accurate visibility labels. Preparing ground-truth tensor depends on it.
     """
+    # dataset_base_dir is image path, json_file_path is json file path,
     def __init__(self, dataset_base_dir, json_file_path, args, data_aug=False, save_std=False, seg_bev=False):
         """
 
@@ -54,6 +71,8 @@ class LaneDatasetv2(Dataset):
         self.normalize = transforms.Normalize(args.vgg_mean, args.vgg_std)
         self.data_aug = data_aug
         self.seg_bev = seg_bev
+        self.dataset_base_dir = dataset_base_dir
+        self.json_file_path = json_file_path
 
         # dataset parameters
         self.dataset_name = args.dataset_name
@@ -250,45 +269,12 @@ class LaneDatasetv2(Dataset):
         self.ref_id = np.argmin(np.abs(self.num_y_steps - self.y_ref))
 
         # parse ground-truth file
-        if 'tusimple' in self.dataset_name:
-            self._label_image_path,\
-                self._label_laneline_all_org, \
-                self._label_laneline_all, \
-                self._laneline_ass_ids, \
-                self._x_off_std,\
-                self._gt_laneline_visibility_all = self.init_dataset_tusimple(dataset_base_dir, json_file_path)
-        elif 'culane' in self.dataset_name:
-            self._label_image_path, \
-                self._label_laneline_all_org, \
-                self._label_laneline_all, \
-                self._laneline_ass_ids, \
-                self._x_off_std,\
-                self._gt_laneline_visibility_all, \
-                self._gt_laneline_category_all_org, \
-                self._gt_laneline_category_all, \
-                self._gt_laneline_im_all = self.init_dataset_culane(dataset_base_dir, json_file_path)
-        elif 'waymo' in self.dataset_name:
-            self._label_image_path, \
-                self._label_laneline_all_org, \
-                self._label_laneline_all, \
-                self._label_centerline_all, \
-                self._label_cam_height_all, \
-                self._label_cam_pitch_all, \
-                self._laneline_ass_ids, \
-                self._centerline_ass_ids, \
-                self._x_off_std, \
+        if 'waymo' in self.dataset_name:
+            self._x_off_std, \
                 self._y_off_std, \
                 self._z_std, \
-                self._gt_laneline_visibility_all, \
-                self._gt_centerline_visibility_all, \
-                self._gt_laneline_category_all_org, \
-                self._gt_laneline_category_all, \
-                self._gt_laneline_im_all, \
-                self._gt_centerline_im_all, \
-                self._cam_intrinsics_all, \
-                self._cam_extrinsics_all, \
                 self._im_anchor_origins, \
-                self._im_anchor_angles = self.init_dataset_waymo(dataset_base_dir, json_file_path)
+                self._im_anchor_angles = self.init_dataset_waymo_beta(dataset_base_dir, json_file_path)
             args.im_anchor_origins = self._im_anchor_origins
             args.im_anchor_angles = self._im_anchor_angles
         else:  # assume loading apollo sim 3D lane
@@ -313,7 +299,10 @@ class LaneDatasetv2(Dataset):
                 self._im_anchor_angles = self.init_dataset_3D(dataset_base_dir, json_file_path)
             args.im_anchor_origins = self._im_anchor_origins
             args.im_anchor_angles = self._im_anchor_angles
-        self.n_samples = self._label_image_path.shape[0]
+        if hasattr(self, '_label_list'):
+            self.n_samples = len(self._label_list)
+        else:
+            self.n_samples = self._label_image_path.shape[0]
 
         if save_std is True:
             with open(ops.join(args.save_path, 'geo_anchor_std.json'), 'w') as jsonFile:
@@ -327,8 +316,190 @@ class LaneDatasetv2(Dataset):
         # self.normalize_lane_label()
 
         # memcache init 
-        self._client = Client("~/petreloss.conf")
         self.use_memcache = args.use_memcache
+        if self.use_memcache:
+            self._client = Client("~/petreloss.conf")
+
+
+    def preprocess_data_from_json_waymo(self, idx_json_file):
+
+        _label_image_path = None
+        _label_cam_height = None
+        _label_cam_pitch = None
+        cam_extrinsics = None
+        cam_intrinsics = None
+        _label_laneline = None
+        _label_laneline_org = None
+        _gt_laneline_visibility = None
+        _gt_laneline_category = None
+        _gt_laneline_category_org = None
+        _laneline_ass_id = None
+
+        with open(idx_json_file, 'r') as file:
+            file_lines = [line for line in file]
+            info_dict = json.loads(file_lines[0])
+
+            image_path = ops.join(self.dataset_base_dir, info_dict['file_path'])
+            assert ops.exists(image_path), '{:s} not exist'.format(image_path)
+            _label_image_path = image_path
+
+            if not self.fix_cam:
+                cam_extrinsics = np.array(info_dict['extrinsic'])
+                # Re-calculate extrinsic matrix based on ground coordinate
+                R_vg = np.array([[0, 1, 0],
+                                    [-1, 0, 0],
+                                    [0, 0, 1]], dtype=float)
+                R_gc = np.array([[1, 0, 0],
+                                    [0, 0, 1],
+                                    [0, -1, 0]], dtype=float)
+                cam_extrinsics[:3, :3] = np.matmul(np.matmul(
+                                            np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
+                                                R_vg), R_gc)
+                cam_extrinsics[0:2, 3] = 0.0
+                
+                # gt_cam_height = info_dict['cam_height']
+                gt_cam_height = cam_extrinsics[2, 3]
+                if 'cam_pitch' in info_dict:
+                    gt_cam_pitch = info_dict['cam_pitch']
+                else:
+                    gt_cam_pitch = 0
+
+                if 'intrinsic' in info_dict:
+                    cam_intrinsics = info_dict['intrinsic']
+                    cam_intrinsics = np.array(cam_intrinsics)
+                else:
+                    cam_intrinsics = self.K  
+
+            _label_cam_height = gt_cam_height
+            _label_cam_pitch = gt_cam_pitch
+
+            gt_lanes_packed = info_dict['lane_lines']
+            gt_lane_pts, gt_lane_visibility, gt_laneline_category = [], [], []
+            for i, gt_lane_packed in enumerate(gt_lanes_packed):
+                # A GT lane can be either 2D or 3D
+                # if a GT lane is 3D, the height is intact from 3D GT, so keep it intact here too
+                lane = np.array(gt_lane_packed['xyz'])
+                lane_visibility = np.array(gt_lane_packed['visibility'])
+
+                # Coordinate convertion for Waymo_300 data
+                lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
+                cam_representation = np.linalg.inv(
+                                        np.array([[0, 0, 1, 0],
+                                                    [-1, 0, 0, 0],
+                                                    [0, -1, 0, 0],
+                                                    [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to waymo camera
+                lane = np.matmul(cam_extrinsics, np.matmul(cam_representation, lane))
+
+                lane = lane[0:3, :].T
+                gt_lane_pts.append(lane)
+                gt_lane_visibility.append(lane_visibility)
+
+                if 'category' in gt_lane_packed:
+                    lane_cate = gt_lane_packed['category']
+                    if lane_cate == 21:  # merge left and right road edge into road edge
+                        lane_cate = 20
+                    gt_laneline_category.append(lane_cate)
+                else:
+                    gt_laneline_category.append(1)
+        
+        # _label_laneline_org = copy.deepcopy(gt_lane_pts)
+        _gt_laneline_category_org = copy.deepcopy(np.array(gt_laneline_category))
+
+        if not self.fix_cam:
+            cam_K = cam_intrinsics
+            if 'waymo' in self.dataset_name:
+                cam_E = cam_extrinsics
+                P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
+                H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
+            else:
+                gt_cam_height = _label_cam_height
+                gt_cam_pitch = _label_cam_pitch
+                P_g2im = projection_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+                H_g2im = homograpthy_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+            H_im2g = np.linalg.inv(H_g2im)
+        else:
+            P_g2im = self.P_g2im
+            H_im2g = self.H_im2g
+        P_g2gflat = np.matmul(H_im2g, P_g2im)
+
+        gt_lanes = gt_lane_pts
+        gt_visibility = gt_lane_visibility
+        gt_category = gt_laneline_category
+
+        # prune gt lanes by visibility labels
+        gt_lanes = [prune_3d_lane_by_visibility(gt_lane, gt_visibility[k]) for k, gt_lane in enumerate(gt_lanes)]
+        _label_laneline_org = copy.deepcopy(gt_lanes)
+
+        # prune out-of-range points are necessary before transformation
+        gt_lanes = [prune_3d_lane_by_range(gt_lane, 3*self.x_min, 3*self.x_max) for gt_lane in gt_lanes]
+        gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
+
+        # convert 3d lanes to flat ground space
+        self.convert_lanes_3d_to_gflat(gt_lanes, P_g2gflat)
+
+        gt_anchors = []
+        ass_ids = []
+        visibility_vectors = []
+        category_ids = []
+        if self.new_match:
+            frame_x_off_values, frame_z_values, frame_visibility_vectors = [], [], []
+
+        for i in range(len(gt_lanes)):
+
+            # convert gt label to anchor label
+            # consider individual out-of-range interpolation still visible
+            ass_id, x_off_values, z_values, visibility_vec = self.convert_label_to_anchor(gt_lanes[i], H_im2g)
+            if not self.new_match:
+                if ass_id >= 0:
+                    gt_anchors.append(np.vstack([x_off_values, z_values]).T)
+                    ass_ids.append(ass_id)
+                    visibility_vectors.append(visibility_vec)
+                    category_ids.append(gt_category[i])
+            else:
+                if len(x_off_values) > 0:
+                    frame_x_off_values.append(x_off_values)
+                    frame_z_values.append(z_values)
+                    frame_visibility_vectors.append(visibility_vec)
+            
+        if self.new_match:
+            frame_x_off_values, frame_z_values, frame_visibility_vectors = np.array(frame_x_off_values), np.array(frame_z_values), np.array(frame_visibility_vectors)
+            if frame_visibility_vectors.shape[0] > 0:  # frame has lane
+                frame_visibility_vectors_expand = np.repeat(np.expand_dims(frame_visibility_vectors, axis=1), self.anchor_num, axis=1)
+                frame_x_off_norm = np.linalg.norm(np.multiply(frame_x_off_values, frame_visibility_vectors_expand), axis=2) / np.sum(frame_visibility_vectors_expand, axis=2)
+                for an_id in range(frame_x_off_values.shape[1]):
+                    anchor_gts_x_off = frame_x_off_norm[:, an_id]
+                    matched_gt_id = np.argmin(anchor_gts_x_off)
+                    # # decide whether match, use different threshold for anchors of different shear angle
+                    # if an_id < 3 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                    #     matched = True
+                    # elif an_id >= 3 * self.anchor_num_before_shear and an_id < 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 2 * self.match_dist_thre_3d:
+                    #     matched = True
+                    # elif an_id >= 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 4 * self.match_dist_thre_3d:
+                    #     matched = True
+                    # else:
+                    #     matched = False
+                    # if matched:
+                    if anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                        gt_anchors.append(np.vstack([frame_x_off_values[matched_gt_id, an_id], frame_z_values[matched_gt_id]]).T)
+                        ass_ids.append((an_id, matched_gt_id))
+                        visibility_vectors.append(frame_visibility_vectors[matched_gt_id])
+                        category_ids.append(gt_category[matched_gt_id])
+        
+        _laneline_ass_id = ass_ids
+        _label_laneline = gt_anchors
+        _gt_laneline_visibility = visibility_vectors
+        _gt_laneline_category = category_ids
+
+        # normalize x anad z, in replacement of normalize_lane_label
+        for lane in _label_laneline:
+            lane[:, 0] = np.divide(lane[:, 0], self._x_off_std)
+            if not self.no_3d:
+                lane[:, 1] = np.divide(lane[:, 1], self._z_std)
+
+        return _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
+                _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
+                _gt_laneline_category_org, _laneline_ass_id
+
 
     def __len__(self):
         """
@@ -336,18 +507,28 @@ class LaneDatasetv2(Dataset):
         """
         return self.n_samples
 
-    def __getitem__(self, idx):
+    # new getitem, WIP
+    def WIP__getitem__(self, idx):
         """
         Args: idx (int): Index in list to load image
         """
+        idx_json_file = self._label_list[idx]
+        # preprocess data from json file
+        _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
+            _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
+            _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_waymo(idx_json_file)
+
+        with open(idx_json_file, 'r') as file:
+            file_lines = [line for line in file]
+            info_dict = json.loads(file_lines[0])
 
         # fetch camera height and pitch
         if not self.fix_cam:
-            gt_cam_height = self._label_cam_height_all[idx]
-            gt_cam_pitch = self._label_cam_pitch_all[idx]
+            gt_cam_height = _label_cam_height
+            gt_cam_pitch = _label_cam_pitch
             if 'waymo' in self.dataset_name:
-                intrinsics = self._cam_intrinsics_all[idx]
-                extrinsics = self._cam_extrinsics_all[idx]
+                intrinsics = cam_intrinsics
+                extrinsics = cam_extrinsics
             else:
                 # should not be used
                 intrinsics = self.K
@@ -361,7 +542,7 @@ class LaneDatasetv2(Dataset):
             extrinsics = np.zeros((3,4))
             extrinsics[2,3] = gt_cam_height
 
-        img_name = self._label_image_path[idx]
+        img_name = _label_image_path
 
         if 'waymo' in self.dataset_name:
             pattern = "/segment-(.*)_with_camera_labels"
@@ -390,28 +571,7 @@ class LaneDatasetv2(Dataset):
             # original way
             with open(img_name, 'rb') as f:
                 image = (Image.open(f).convert('RGB'))
-        #         open_cv_image = np.array(image)
-        #         open_cv_image = open_cv_image[:, :, ::-1].copy()
 
-        # img_org = open_cv_image.copy()
-
-        # print("label.size in __getitem__ after initialization:", np.shape(self._gt_laneline_im_all[idx]))
-        # laneline_strings_org = self.lane_to_linestrings(self._gt_laneline_im_all[idx])
-        # laneline_strings_org = LineStringsOnImage(laneline_strings_org, shape=img_org.shape)
-        # img, laneline_strings = self.transform(image=img_org.copy(), line_strings=laneline_strings_org)
-        # laneline_strings.clip_out_of_image_()
-        # gt_laneline_img = self.linestrings_to_lanes(laneline_strings)
-        # num_gt_laneline_img = np.shape(gt_laneline_img)[0]
-        # print("label.size in __getitem__ after linestring_to_lanes:", np.shape(gt_laneline_img))
-        
-        # centerline_strings_org = self.lane_to_linestrings(self._gt_centerline_im_all[idx])
-        # centerline_strings_org = LineStringsOnImage(centerline_strings_org, shape=img_org.shape)
-        # img, centerline_strings = self.transform(image=img_org.copy(), line_strings=centerline_strings_org)
-        # centerline_strings.clip_out_of_image_()
-        # gt_centerline_img = self.linestrings_to_lanes(centerline_strings)
-        # num_gt_centerline_img = np.shape(gt_centerline_img)[0]
-
-        # image = Image.fromarray(img)
 
         # image preprocess with crop and resize
         image = F.crop(image, self.h_crop, 0, self.h_org-self.h_crop, self.w_org)
@@ -419,18 +579,18 @@ class LaneDatasetv2(Dataset):
 
         gt_anchor = np.zeros([self.anchor_num, self.num_types, self.anchor_dim], dtype=np.float32)
         gt_anchor[:, :, self.anchor_dim - self.num_category] = 1.0
-        gt_lanes = self._label_laneline_all[idx]
-        gt_vis_inds = self._gt_laneline_visibility_all[idx]
+        gt_lanes = _label_laneline
+        gt_vis_inds = _gt_laneline_visibility
         # gt_laneline_img = self._gt_laneline_im_all[idx]
-        gt_category_2d = self._gt_laneline_category_all_org[idx]
-        gt_category_3d = self._gt_laneline_category_all[idx]
+        gt_category_2d = _gt_laneline_category_org
+        gt_category_3d = _gt_laneline_category
         for i in range(len(gt_lanes)):
 
             # if ass_id >= 0:
             if not self.new_match:
-                ass_id = self._laneline_ass_ids[idx][i]
+                ass_id = _laneline_ass_id[i]
             else:
-                ass_id = self._laneline_ass_ids[idx][i][0]
+                ass_id = _laneline_ass_id[i][0]
             x_off_values = gt_lanes[i][:, 0]
             z_values = gt_lanes[i][:, 1]
             visibility = gt_vis_inds[i]
@@ -448,41 +608,6 @@ class LaneDatasetv2(Dataset):
                 gt_anchor[ass_id, 0, self.anchor_dim - self.num_category] = 0.0
                 gt_anchor[ass_id, 0, self.anchor_dim - self.num_category + gt_category_3d[i]] = 1.0
 
-        # fetch centerlines when available
-        if not self.no_centerline:
-            gt_lanes = self._label_centerline_all[idx]
-            gt_vis_inds = self._gt_centerline_visibility_all[idx]
-            for i in range(len(gt_lanes)):
-
-                # if ass_id >= 0:
-                ass_id = self._centerline_ass_ids[idx][i]
-                x_off_values = gt_lanes[i][:, 0]
-                z_values = gt_lanes[i][:, 1]
-                visibility = gt_vis_inds[i]
-
-                # assign anchor tensor values
-                # if ass_id >= 0:
-                # if gt_anchor[ass_id, 1, -1] > 0:  # the case one splitting lane has been assigned
-                if gt_anchor[ass_id, 1, self.anchor_dim - self.num_category] < 1e-5:
-                    gt_anchor[ass_id, 2, 0: self.num_y_steps] = x_off_values
-                    if not self.no_3d:
-                        gt_anchor[ass_id, 2, self.num_y_steps:2*self.num_y_steps] = z_values
-                        gt_anchor[ass_id, 2, 2*self.num_y_steps:3*self.num_y_steps] = visibility
-                    # gt_anchor[ass_id, 2, -1] = 1.0
-                    gt_anchor[ass_id, 2, self.anchor_dim - self.num_category] = 0.0
-                    gt_anchor[ass_id, 2, self.anchor_dim - self.num_category + gt_category_3d[i]] = 1.0
-                else:
-                    gt_anchor[ass_id, 1, 0: self.num_y_steps] = x_off_values
-                    if not self.no_3d:
-                        gt_anchor[ass_id, 1, self.num_y_steps:2*self.num_y_steps] = z_values
-                        gt_anchor[ass_id, 1, 2*self.num_y_steps:3*self.num_y_steps] = visibility
-                    # gt_anchor[ass_id, 1, -1] = 1.0
-                    if 'waymo' not in self.dataset_name:
-                        gt_anchor[ass_id, 1, -1] = 1.0
-                    else:
-                        gt_anchor[ass_id, 1, self.anchor_dim - self.num_category] = 0.0
-                        gt_anchor[ass_id, 1,  self.anchor_dim - self.num_category + gt_category_3d[i]] = 1.0
-
         if self.data_aug:
             img_rot, aug_mat = data_aug_rotate(image)
             image = Image.fromarray(img_rot)
@@ -499,14 +624,15 @@ class LaneDatasetv2(Dataset):
 
         # prepare binary segmentation label map
         seg_label = np.zeros((self.h_net, self.w_net), dtype=np.int8)
-        gt_lanes = self._label_laneline_all_org[idx]
+        gt_lanes = _label_laneline_org
         gt_laneline_img = [0] * len(gt_lanes)
         for i, lane in enumerate(gt_lanes):
             # project lane3d to image
             if self.no_3d:
                 x_2d = lane[:, 0]
                 y_2d = lane[:, 1]
-                H_g2im, P_g2im, H_crop, H_im2ipm = self.transform_mats(idx)
+                H_g2im, P_g2im, H_crop, H_im2ipm = self.transform_mats_impl(cam_extrinsics, \
+                                                    cam_intrinsics, _label_cam_pitch, _label_cam_height)
                 M = H_crop
                 # update transformation with image augmentation
                 if self.data_aug:
@@ -514,25 +640,12 @@ class LaneDatasetv2(Dataset):
                 x_2d, y_2d = homographic_transformation(M, x_2d, y_2d)
                 gt_laneline_img[i] = np.array([x_2d, y_2d]).T.tolist()
             else:
-                H_g2im, P_g2im, H_crop, H_im2ipm = self.transform_mats(idx)
+                H_g2im, P_g2im, H_crop, H_im2ipm = self.transform_mats_impl(cam_extrinsics, \
+                                                    cam_intrinsics, _label_cam_pitch, _label_cam_height)
                 M = np.matmul(H_crop, P_g2im)
                 # update transformation with image augmentation
                 if self.data_aug:
                     M = np.matmul(aug_mat, M)
-                    
-                    # linestrings transform could eliminate some lanes
-                    # if i < num_gt_laneline_img:
-                    #     gt_laneline_img_org = gt_laneline_img[i]
-                    #     x_2d = gt_laneline_img_org[:, 0]
-                    #     y_2d = gt_laneline_img_org[:, 1]
-                    #     x_2d, y_2d = homographic_transformation(aug_mat, x_2d, y_2d)
-                    #     gt_laneline_img[i] = np.array([x_2d, y_2d]).T.tolist()
-                    # if i < num_gt_centerline_img:
-                    #     gt_centerline_img_org = gt_centerline_img[i]
-                    #     x_2d = gt_centerline_img_org[:, 0]
-                    #     y_2d = gt_centerline_img_org[:, 1]
-                    #     x_2d, y_2d = homographic_transformation(aug_mat, x_2d, y_2d)
-                    #     gt_centerline_img[i] = np.array([x_2d, y_2d]).T.tolist()
 
                 x_2d, y_2d = projective_transformation(M, lane[:, 0],
                                                        lane[:, 1], lane[:, 2])
@@ -544,11 +657,6 @@ class LaneDatasetv2(Dataset):
         seg_label = torch.from_numpy(seg_label.astype(np.float32))
         seg_label.unsqueeze_(0)
 
-        # transform to n offsets
-        # print("label.size in __getitem__ after data_aug:", np.shape(gt_laneline_img))
-        # print("# of lanes in this img: ", np.shape(gt_laneline_img)[0])
-        # print("length of gt_category_2d: ", gt_category_2d.shape[0])
-        # print("length of gt_category_3d: ", gt_category_3d.shape[0])
         if len(gt_lanes) > self.max_lanes:
             print(img_name + " has over 20 lanes")
             gt_laneline_img = gt_laneline_img[:self.max_lanes]
@@ -563,17 +671,27 @@ class LaneDatasetv2(Dataset):
             seg_bev_map = self.draw_on_ipm_seg_bev(seg_bev_map, gt_anchor_bev, width=self.lane_width)
             seg_bev_map = torch.from_numpy(seg_bev_map.astype(np.float32))
             seg_bev_map.unsqueeze_(0)
-
+            
         if self.seg_bev:
             if self.data_aug:
                 aug_mat = torch.from_numpy(aug_mat.astype(np.float32))
-                return image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name, seg_bev_map
-            return image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name, seg_bev_map
+                # print(type(aug_mat))  <class 'numpy.ndarray'>
+                return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name, seg_bev_map
+            return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name, seg_bev_map
         else:
             if self.data_aug:
                 aug_mat = torch.from_numpy(aug_mat.astype(np.float32))
-                return image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name
-            return image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name
+                return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name
+            return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name
+
+    # old getitem, workable
+    def __getitem__(self, idx):
+        """
+        Args: idx (int): Index in list to load image
+        """
+        return self.WIP__getitem__(idx)
+
+
 
 
     def init_dataset_3D(self, dataset_base_dir, json_file_path):
@@ -818,162 +936,7 @@ class LaneDatasetv2(Dataset):
                gt_laneline_im_all, gt_centerline_im_all,\
                anchor_origins, anchor_angles
 
-    def init_dataset_tusimple(self, dataset_base_dir, json_file_path):
-        """
-        :param json_file_path:
-        :return: image paths, labels in unormalized net input coordinates
-
-        data processing:
-        ground truth labels map are scaled wrt network input sizes
-        """
-
-        # load image path, and lane pts
-        label_image_path = []
-        gt_laneline_pts_all = []
-        gt_laneline_visibility_all = []
-
-        assert ops.exists(json_file_path), '{:s} not exist'.format(json_file_path)
-
-        with open(json_file_path, 'r') as file:
-            for line in file:
-                info_dict = json.loads(line)
-
-                image_path = ops.join(dataset_base_dir, info_dict['raw_file'])
-                assert ops.exists(image_path), '{:s} not exist'.format(image_path)
-
-                label_image_path.append(image_path)
-
-                gt_lane_pts_X = info_dict['lanes']
-                gt_y_steps = np.array(info_dict['h_samples'])
-                gt_lane_pts = []
-
-                for i, lane_x in enumerate(gt_lane_pts_X):
-                    lane = np.zeros([gt_y_steps.shape[0], 2], dtype=np.float32)
-
-                    lane_x = np.array(lane_x)
-                    lane[:, 0] = lane_x
-                    lane[:, 1] = gt_y_steps
-                    # remove invalid samples
-                    lane = lane[lane_x >= 0, :]
-
-                    if lane.shape[0] < 2:
-                        continue
-
-                    gt_lane_pts.append(lane)
-                gt_laneline_pts_all.append(gt_lane_pts)
-        label_image_path = np.array(label_image_path)
-        gt_laneline_pts_all_org = copy.deepcopy(gt_laneline_pts_all)
-
-        # convert labeled laneline to anchor format
-        H_im2g = self.H_im2g
-        gt_laneline_ass_ids = []
-        lane_x_off_all = []
-        for idx in range(len(gt_laneline_pts_all)):
-            gt_lanes = gt_laneline_pts_all[idx]
-            gt_anchors = []
-            ass_ids = []
-            visibility_vectors = []
-            for i in range(len(gt_lanes)):
-                # convert gt label to anchor label
-                ass_id, x_off_values, z_values, visibility_vec = self.convert_label_to_anchor(gt_lanes[i], H_im2g)
-                if ass_id >= 0:
-                    gt_anchors.append(np.vstack([x_off_values, z_values]).T)
-                    ass_ids.append(ass_id)
-                    lane_x_off_all.append(x_off_values)
-                    visibility_vectors.append(visibility_vec)
-            gt_laneline_ass_ids.append(ass_ids)
-            gt_laneline_pts_all[idx] = gt_anchors
-            gt_laneline_visibility_all.append(visibility_vectors)
-
-        lane_x_off_all = np.array(lane_x_off_all)
-        lane_x_off_std = np.std(lane_x_off_all, axis=0)
-
-        return label_image_path, gt_laneline_pts_all_org, gt_laneline_pts_all, gt_laneline_ass_ids,\
-               lane_x_off_std, gt_laneline_visibility_all
-
-    def init_dataset_culane(self, dataset_base_dir, data_list_file_path):
-        """
-        :param data_list_file_path:
-        :return: image paths, labels in unormalized net input coordinates
-
-        data processing:
-        ground truth labels map are scaled wrt network input sizes
-        """
-
-        # load image path, and lane pts
-        label_image_path = []
-        gt_laneline_pts_all = []
-        gt_laneline_im_all = []
-        gt_laneline_visibility_all = []
-        gt_laneline_category_all = []
-
-        assert ops.exists(data_list_file_path), '{:s} not exist'.format(data_list_file_path)
-
-        with open(data_list_file_path, 'r') as file:
-            lines = file.read().splitlines()
-            for line in lines:
-                # info_dict = json.loads(line)
-                # image_path = ops.join(dataset_base_dir, info_dict['raw_file'])
-
-                image_path = ops.join(dataset_base_dir, line[1:])  # get rid of prefix slash
-                assert ops.exists(image_path), '{:s} not exist'.format(image_path)
-                
-                label_image_path.append(image_path)
-
-                label_path = image_path[:-3] + 'lines.txt'
-                assert ops.exists(label_path), '{:s} not exist'.format(label_path)
-
-                with open(label_path, 'r') as label_file:
-                    data = [list(map(float, line.split())) for line in label_file.readlines()]
-
-                lanes = [[(lane[i], lane[i + 1]) for i in range(0, len(lane), 2) if lane[i] >= 0 and lane[i + 1] >= 0]
-                        for lane in data]
-                lanes = [list(set(lane)) for lane in lanes]  # remove duplicated points
-                lanes = [lane for lane in lanes if len(lane) >= 2]  # remove lanes with less than 2 points
-                lanes = [sorted(lane, key=lambda x: x[1]) for lane in lanes]  # sort by y
-                lanes = [np.array(lane) for lane in lanes]
-                
-                gt_laneline_pts_all.append(lanes)
-                gt_laneline_category_all.append(np.ones((len(lanes),), dtype=np.int32)) # default 1
-
-        label_image_path = np.array(label_image_path)
-        gt_laneline_pts_all_org = copy.deepcopy(gt_laneline_pts_all)
-        gt_laneline_im_all = copy.deepcopy(gt_laneline_pts_all)
-        gt_laneline_category_all_org = copy.deepcopy(gt_laneline_category_all)
-
-        # convert labeled laneline to anchor format
-        H_im2g = self.H_im2g
-        gt_laneline_ass_ids = []
-        lane_x_off_all = []
-        for idx in range(len(gt_laneline_pts_all)):
-            gt_lanes = gt_laneline_pts_all[idx]
-            gt_category = gt_laneline_category_all[idx]
-            gt_anchors = []
-            ass_ids = []
-            visibility_vectors = []
-            category_ids = []
-            for i in range(len(gt_lanes)):
-                # convert gt label to anchor label
-                ass_id, x_off_values, z_values, visibility_vec = self.convert_label_to_anchor(gt_lanes[i], H_im2g)
-                if ass_id >= 0:
-                    gt_anchors.append(np.vstack([x_off_values, z_values]).T)
-                    ass_ids.append(ass_id)
-                    lane_x_off_all.append(x_off_values)
-                    visibility_vectors.append(visibility_vec)
-                    category_ids.append(gt_category[i])
-            gt_laneline_ass_ids.append(ass_ids)
-            gt_laneline_pts_all[idx] = gt_anchors
-            gt_laneline_visibility_all.append(visibility_vectors)
-            gt_laneline_category_all[idx] = category_ids
-
-        lane_x_off_all = np.array(lane_x_off_all)
-        lane_x_off_std = np.std(lane_x_off_all, axis=0)
-        gt_laneline_im_all = np.array(gt_laneline_im_all)
-
-        return label_image_path, gt_laneline_pts_all_org, gt_laneline_pts_all, gt_laneline_ass_ids,\
-               lane_x_off_std, gt_laneline_visibility_all, gt_laneline_category_all_org, gt_laneline_category_all,\
-               gt_laneline_im_all
-
+ 
     def read_cache_file(self, cache_file):
         label_image_path = cache_file["label_image_path"]
         gt_laneline_pts_all_org = cache_file["gt_laneline_pts_all_org"]
@@ -1004,7 +967,18 @@ class LaneDatasetv2(Dataset):
                 gt_laneline_im_all, gt_centerline_im_all, cam_intrinsics_all, cam_extrinsics_all,\
                 anchor_origins, anchor_angles
 
-    def init_dataset_waymo(self, dataset_base_dir, json_file_path):
+    def read_cache_file_beta(self, cache_file):
+
+        lane_x_off_std = cache_file["lane_x_off_std"]
+        lane_y_off_std = cache_file["lane_y_off_std"]
+        lane_z_std = cache_file["lane_z_std"]
+        anchor_origins = cache_file["anchor_origins"]
+        anchor_angles = cache_file["anchor_angles"]
+        return lane_x_off_std, lane_y_off_std, lane_z_std,\
+               anchor_origins, anchor_angles
+
+
+    def init_dataset_waymo_beta(self, dataset_base_dir, json_file_path):
         """
         :param dataset_info_file:
         :return: image paths, labels in unormalized net input coordinates
@@ -1012,6 +986,11 @@ class LaneDatasetv2(Dataset):
         data processing:
         ground truth labels map are scaled wrt network input sizes
         """
+
+        label_list = glob.glob(json_file_path + '**/*.json', recursive=True)
+
+        # save label list and this determine the idx order
+        self._label_list = label_list
         
         # accelerate Waymo dataset IO
         Path("./.cache/").mkdir(parents=True, exist_ok=True)
@@ -1021,52 +1000,52 @@ class LaneDatasetv2(Dataset):
                     if os.path.isfile("./.cache/waymo_1000_preprocess_train.pkl"):
                         with open("./.cache/waymo_1000_preprocess_train.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
                 else:  
                     if os.path.isfile("./.cache/waymo_preprocess_train.pkl"):
                         # TODO: need to change later
                         with open("./.cache/waymo_preprocess_train.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
                 if "lane3d_v2.0" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_valid.pkl"):
                         with open("./.cache/waymo_1000_preprocess_valid.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
                 else:
                     if os.path.isfile("./.cache/waymo_preprocess_valid.pkl"):
                         # TODO: need to change later
                         with open("./.cache/waymo_preprocess_valid.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
         else:
             if "training/" in json_file_path:
                 if "lane3d_v2.0" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_train_newanchor.pkl"):
                         with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
                 else:  
                     if os.path.isfile("./.cache/waymo_preprocess_train_newanchor.pkl"):
                         # TODO: need to change later
                         with open("./.cache/waymo_preprocess_train_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
                 if "lane3d_v2.0" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_valid_newanchor.pkl"):
                         with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
                 else:
                     if os.path.isfile("./.cache/waymo_preprocess_valid_newanchor.pkl"):
                         # TODO: need to change later
                         with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
-                            return self.read_cache_file(cache_file)
+                            return self.read_cache_file_beta(cache_file)
 
 
         # load image path, and lane pts
@@ -1080,8 +1059,7 @@ class LaneDatasetv2(Dataset):
         gt_cam_pitch_all = []
         cam_intrinsics_all = []
         cam_extrinsics_all = []
-
-        label_list = glob.glob(json_file_path + '**/*.json', recursive=True)
+        
         for label_file in label_list:
             with open(label_file, 'r') as file:
                 file_lines = [line for line in file]
@@ -1177,8 +1155,16 @@ class LaneDatasetv2(Dataset):
         idx_path = {}
         for i, path in enumerate(label_image_path):
             idx_path[i] = path
-        train_idx_file = './data_splits/waymo_300_v1.1/train_idx_300.json'
-        val_idx_file = './data_splits/waymo_300_v1.1/val_idx_300.json'
+
+        if "lane3d_v2.0" in json_file_path:
+            train_idx_file = './data_splits/waymo_1000_v1.1/train_idx_1000.json'
+            val_idx_file = './data_splits/waymo_1000_v1.1/val_idx_1000.json'
+        elif "lane3d_v1" in json_file_path:
+            train_idx_file = './data_splits/waymo_300_v1.1/train_idx_300.json'
+            val_idx_file = './data_splits/waymo_300_v1.1/val_idx_300.json'
+        else:
+            raise Exception("openlane version not supported")
+        
         if not ops.isfile(train_idx_file):
             with open(train_idx_file, 'w') as f:
                 json.dump(idx_path, f)
@@ -1392,25 +1378,25 @@ class LaneDatasetv2(Dataset):
         lane_z_std = np.sqrt(np.average(lane_z_all**2, weights=visibility_all_flat, axis=0))
 
         cache_file = {}
-        cache_file["label_image_path"] = label_image_path
-        cache_file["gt_laneline_pts_all_org"] = gt_laneline_pts_all_org
-        cache_file["gt_laneline_pts_all"] = gt_laneline_pts_all
-        cache_file["gt_centerline_pts_all"] = gt_centerline_pts_all
-        cache_file["gt_cam_height_all"] = gt_cam_height_all
-        cache_file["gt_cam_pitch_all"] = gt_cam_pitch_all
-        cache_file["gt_laneline_ass_ids"] = gt_laneline_ass_ids
-        cache_file["gt_centerline_ass_ids"] = gt_centerline_ass_ids
-        cache_file["lane_x_off_std"] = lane_x_off_std
+        cache_file["label_image_path"] = label_image_path                               # replacable
+        cache_file["gt_laneline_pts_all_org"] = gt_laneline_pts_all_org                 # replacable
+        cache_file["gt_laneline_pts_all"] = gt_laneline_pts_all                         # replacable
+        cache_file["gt_centerline_pts_all"] = gt_centerline_pts_all                     # not used
+        cache_file["gt_cam_height_all"] = gt_cam_height_all                             # replacable
+        cache_file["gt_cam_pitch_all"] = gt_cam_pitch_all                               # replacable
+        cache_file["gt_laneline_ass_ids"] = gt_laneline_ass_ids                         # replacable
+        cache_file["gt_centerline_ass_ids"] = gt_centerline_ass_ids                     # not used
+        cache_file["lane_x_off_std"] = lane_x_off_std                                   
         cache_file["lane_y_off_std"] = lane_y_off_std
         cache_file["lane_z_std"] = lane_z_std
-        cache_file["gt_laneline_visibility_all"] = gt_laneline_visibility_all
-        cache_file["gt_centerline_visibility_all"] = gt_centerline_visibility_all
-        cache_file["gt_laneline_category_all_org"] = gt_laneline_category_all_org
-        cache_file["gt_laneline_category_all"] = gt_laneline_category_all
-        cache_file["gt_laneline_im_all"] = gt_laneline_im_all
-        cache_file["gt_centerline_im_all"] = gt_centerline_im_all
-        cache_file["cam_intrinsics_all"] = cam_intrinsics_all
-        cache_file["cam_extrinsics_all"] = cam_extrinsics_all
+        cache_file["gt_laneline_visibility_all"] = gt_laneline_visibility_all           # replacable
+        cache_file["gt_centerline_visibility_all"] = gt_centerline_visibility_all       # not used
+        cache_file["gt_laneline_category_all_org"] = gt_laneline_category_all_org       # replacable
+        cache_file["gt_laneline_category_all"] = gt_laneline_category_all               # replacable
+        cache_file["gt_laneline_im_all"] = gt_laneline_im_all                           # not used
+        cache_file["gt_centerline_im_all"] = gt_centerline_im_all                       # not used
+        cache_file["cam_intrinsics_all"] = cam_intrinsics_all                           # replacable
+        cache_file["cam_extrinsics_all"] = cam_extrinsics_all                           # replacable
         cache_file["anchor_origins"] = anchor_origins
         cache_file["anchor_angles"] = anchor_angles
         
@@ -1446,13 +1432,9 @@ class LaneDatasetv2(Dataset):
                         with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "wb") as f:
                             pickle.dump(cache_file, f)
 
-        return label_image_path, gt_laneline_pts_all_org,\
-               gt_laneline_pts_all, gt_centerline_pts_all, gt_cam_height_all, gt_cam_pitch_all,\
-               gt_laneline_ass_ids, gt_centerline_ass_ids, lane_x_off_std, lane_y_off_std, lane_z_std,\
-               gt_laneline_visibility_all, gt_centerline_visibility_all, \
-               gt_laneline_category_all_org, gt_laneline_category_all,\
-               gt_laneline_im_all, gt_centerline_im_all, cam_intrinsics_all, cam_extrinsics_all,\
+        return lane_x_off_std, lane_y_off_std, lane_z_std,\
                anchor_origins, anchor_angles
+
 
     def set_x_off_std(self, x_off_std):
         self._x_off_std = x_off_std
@@ -1613,15 +1595,68 @@ class LaneDatasetv2(Dataset):
         :param idx:
         :return:
         """
+        if hasattr(self, '_cam_extrinsics_all'):
+            if not self.fix_cam:
+                if 'waymo' in self.dataset_name:
+                    H_g2im = homograpthy_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
+                    P_g2im = projection_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
+                else:
+                    H_g2im = homograpthy_g2im(self._label_cam_pitch_all[idx],
+                                            self._label_cam_height_all[idx], self.K)
+                    P_g2im = projection_g2im(self._label_cam_pitch_all[idx],
+                                            self._label_cam_height_all[idx], self.K)
+
+                H_im2ipm = np.linalg.inv(np.matmul(self.H_crop, np.matmul(H_g2im, self.H_ipm2g)))
+                return H_g2im, P_g2im, self.H_crop, H_im2ipm
+            else:
+                return self.H_g2im, self.P_g2im, self.H_crop, self.H_im2ipm
+        else:
+            idx_json_file = self._label_list[idx]
+            with open(idx_json_file, 'r') as file:
+                file_lines = [line for line in file]
+                info_dict = json.loads(file_lines[0])
+
+                if not self.fix_cam:
+                    cam_extrinsics = np.array(info_dict['extrinsic'])
+                    # Re-calculate extrinsic matrix based on ground coordinate
+                    R_vg = np.array([[0, 1, 0],
+                                        [-1, 0, 0],
+                                        [0, 0, 1]], dtype=float)
+                    R_gc = np.array([[1, 0, 0],
+                                        [0, 0, 1],
+                                        [0, -1, 0]], dtype=float)
+                    cam_extrinsics[:3, :3] = np.matmul(np.matmul(
+                                                np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
+                                                    R_vg), R_gc)
+                    cam_extrinsics[0:2, 3] = 0.0
+                    
+                    # gt_cam_height = info_dict['cam_height']
+                    gt_cam_height = cam_extrinsics[2, 3]
+                    if 'cam_pitch' in info_dict:
+                        gt_cam_pitch = info_dict['cam_pitch']
+                    else:
+                        gt_cam_pitch = 0
+
+                    if 'intrinsic' in info_dict:
+                        cam_intrinsics = info_dict['intrinsic']
+                        cam_intrinsics = np.array(cam_intrinsics)
+                    else:
+                        cam_intrinsics = self.K  
+
+                _label_cam_height = gt_cam_height
+                _label_cam_pitch = gt_cam_pitch
+
+                return self.transform_mats_impl(cam_extrinsics, cam_intrinsics, _label_cam_pitch, _label_cam_height)
+
+
+    def transform_mats_impl(self, cam_extrinsics, cam_intrinsics, cam_pitch, cam_height):
         if not self.fix_cam:
             if 'waymo' in self.dataset_name:
-                H_g2im = homograpthy_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
-                P_g2im = projection_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
+                H_g2im = homograpthy_g2im_extrinsic(cam_extrinsics, cam_intrinsics)
+                P_g2im = projection_g2im_extrinsic(cam_extrinsics, cam_intrinsics)
             else:
-                H_g2im = homograpthy_g2im(self._label_cam_pitch_all[idx],
-                                          self._label_cam_height_all[idx], self.K)
-                P_g2im = projection_g2im(self._label_cam_pitch_all[idx],
-                                         self._label_cam_height_all[idx], self.K)
+                H_g2im = homograpthy_g2im(cam_pitch, cam_height, self.K)
+                P_g2im = projection_g2im(cam_pitch, cam_height, self.K)
 
             H_im2ipm = np.linalg.inv(np.matmul(self.H_crop, np.matmul(H_g2im, self.H_ipm2g)))
             return H_g2im, P_g2im, self.H_crop, H_im2ipm
@@ -1834,8 +1869,6 @@ def make_lane_y_mono_inc(lane):
             output augmented hcam, pitch, and img2 and untouched 3D anchor label value, Before forward pass, update spatial
             transform in network. However, However, image rotation is not considered, additional cropping is still needed
 """
-
-
 def data_aug_rotate(img):
     # assume img in PIL image format
     rot = random.uniform(-np.pi/18, np.pi/18)
@@ -1873,11 +1906,16 @@ def get_loader(transformed_dataset, args):
     discarded_sample_start = len(sample_idx) // args.batch_size * args.batch_size
     if args.proc_id == 0:
         print("Discarding images:")
-        print(transformed_dataset._label_image_path[discarded_sample_start: len(sample_idx)])
+    if args.proc_id == 0:
+        if hasattr(transformed_dataset, '_label_image_path'):
+            print(transformed_dataset._label_image_path[discarded_sample_start: len(sample_idx)])
+        else:
+            print(discarded_sample_start)
     sample_idx = sample_idx[0 : discarded_sample_start]
     
     if args.dist:
-        print('use distributed sampler')
+        if args.proc_id == 0:
+            print('use distributed sampler')
         if 'standard' in args.dataset_name or 'rare_subset' in args.dataset_name or 'illus_chg' in args.dataset_name:
             data_sampler = torch.utils.data.distributed.DistributedSampler(transformed_dataset, shuffle=True, drop_last=True)
             data_loader = DataLoader(transformed_dataset,
@@ -1900,7 +1938,8 @@ def get_loader(transformed_dataset, args):
                                         worker_init_fn=seed_worker,
                                         generator=g)
     else:
-        print("use default sampler")
+        if args.proc_id == 0:
+            print("use default sampler")
         data_sampler = torch.utils.data.sampler.SubsetRandomSampler(sample_idx)
         data_loader = DataLoader(transformed_dataset,
                                 batch_size=args.batch_size, sampler=data_sampler,
@@ -2213,7 +2252,7 @@ if __name__ == '__main__':
 
     # load data
     dataset = LaneDatasetv2(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
-    dataset.normalize_lane_label()
+    # dataset.normalize_lane_label()
     loader = get_loader(dataset, args)
     anchor_x_steps = dataset.anchor_x_steps
 

@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from numpy import dtype
 from utils.utils import *
 from models.networks.feature_extractor import *
-from models.networks import fpn, Lane2D, Lane3D
+from models.networks import Lane2D, Lane3D
 from models.networks.libs.layers import *
 from models.networks.PE import PositionEmbeddingLearned
 from models.networks.Layers import EncoderLayer

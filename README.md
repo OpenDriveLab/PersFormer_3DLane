@@ -76,7 +76,7 @@ python main_persformer.py --batch_size=$BATCH_SIZE$
       year={2022}
     }  
 
-## Acknowledge
+## Acknowledgements
   We would like to acknowledge the great support from SenseBee labelling team at SenseTime Research, and the fruitful discussions and comments for this project from Zhiqi Li, Yuenan Hou, Yu Liu.
 
 

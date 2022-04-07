@@ -79,7 +79,7 @@ def config(args):
     args.use_fpn = False
 
     # data loader
-    args.nworkers = 1
+    args.nworkers = 3
 
     # grad clip
     args.clip_grad_norm = 35.0

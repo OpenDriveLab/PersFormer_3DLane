@@ -51,7 +51,7 @@ class Runner:
         if args.proc_id == 0:
             if not args.no_cuda and not torch.cuda.is_available():
                 raise Exception("No gpu available for usage")
-            if torch.cuda.device_count() > 1:
+            if torch.cuda.device_count() >= 1:
                 print("Let's use", torch.cuda.device_count(), "GPUs!")
                 torch.cuda.empty_cache()
 
@@ -64,9 +64,10 @@ class Runner:
             mkdir_if_missing(os.path.join(args.save_path, 'example/valid'))
 
         # Get Dataset
-        print("Loading Dataset ...")
+        if args.proc_id == 0:
+            print("Loading Dataset ...")
         self.val_gt_file = ops.join(args.save_path, 'test.json')
-        self.valid_set_labels = self._get_valid_set_labels()
+        # self.valid_set_labels = self._get_valid_set_labels()
         self.train_dataset, self.train_loader, self.train_sampler = self._get_train_dataset()
         self.valid_dataset, self.valid_loader, self.valid_sampler = self._get_valid_dataset()
 
@@ -91,7 +92,8 @@ class Runner:
             self.writer = SummaryWriter(tensorboard_path)
         # initialize visual saver
         self.vs_saver = Visualizer(args)
-        print("Init Done!")
+        if args.proc_id == 0:
+            print("Init Done!")
 
 
     def train(self):
@@ -157,7 +159,7 @@ class Runner:
             # compute timing
             end = time.time()
             # Start training loop
-            for i, (input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, aug_mat, seg_name, seg_bev_map) in tqdm(enumerate(train_loader)):
+            for i, (json_files, input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, aug_mat, seg_name, seg_bev_map) in tqdm(enumerate(train_loader)):
                 # Time dataloader
                 data_time.update(time.time() - end)
 
@@ -292,7 +294,7 @@ class Runner:
         bceloss = nn.BCEWithLogitsLoss()
         vs_saver = self.vs_saver
         val_gt_file = self.val_gt_file
-        valid_set_labels = self.valid_set_labels
+        # valid_set_labels = self.valid_set_labels
         # Define container to keep track of metric and loss
         losses = AverageMeter()
         losses_3d_vis = AverageMeter()
@@ -310,7 +312,7 @@ class Runner:
 
         # Start validation loop
         with torch.no_grad():
-            for i, (input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, seg_name, seg_bev_map) in tqdm(enumerate(loader)):
+            for i, (json_files, input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, seg_name, seg_bev_map) in tqdm(enumerate(loader)):
                 if not args.no_cuda:
                     input, gt = input.cuda(non_blocking=True), gt.cuda(non_blocking=True)
                     seg_maps = seg_maps.cuda(non_blocking=True)
@@ -398,7 +400,11 @@ class Runner:
                     img_name_all = []
                     for j in range(num_el):
                         im_id = idx[j]
-                        json_line = copy.deepcopy(valid_set_labels[im_id])
+                        # json_line = copy.deepcopy(valid_set_labels[im_id])
+                        json_file = json_files[j]
+                        with open(json_file, 'r') as file:
+                            file_lines = [line for line in file]
+                            json_line = json.loads(file_lines[0])
                         img_path = json_line["file_path"]
                         img_name = os.path.basename(img_path)
                         img_name_all.append(img_name)
@@ -416,7 +422,12 @@ class Runner:
                 for j in range(num_el):
                     im_id = idx[j]
                     # saving json style
-                    json_line = valid_set_labels[im_id]
+                    # json_line = valid_set_labels[im_id]
+                    json_file = json_files[j]
+                    with open(json_file, 'r') as file:
+                        file_lines = [line for line in file]
+                        json_line = json.loads(file_lines[0])
+
                     gt_lines_sub.append(copy.deepcopy(json_line))
 
                     lane_anchors = output_net[j]
@@ -478,7 +489,8 @@ class Runner:
         model = PersFormer(args)
         define_init_weights(model, args.weight_init)
         if args.sync_bn:
-            print("Convert model with Sync BatchNorm")
+            if args.proc_id == 0:
+                print("Convert model with Sync BatchNorm")
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         if not args.no_cuda:
             device = torch.device("cuda", args.local_rank)
@@ -506,7 +518,7 @@ class Runner:
         else:
             train_dataset = LaneDatasetv2(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
         
-        train_dataset.normalize_lane_label()
+        # train_dataset.normalize_lane_label()
         train_loader, train_sampler = get_loader(train_dataset, args)
 
         return train_dataset, train_loader, train_sampler
@@ -526,7 +538,7 @@ class Runner:
         valid_dataset.set_x_off_std(self.train_dataset._x_off_std)
         if not args.no_3d:
             valid_dataset.set_z_std(self.train_dataset._z_std)
-        valid_dataset.normalize_lane_label()
+        # valid_dataset.normalize_lane_label()
         valid_loader, valid_sampler = get_loader(valid_dataset, args)
 
         return valid_dataset, valid_loader, valid_sampler
@@ -574,7 +586,8 @@ class Runner:
         define_init_weights(model, args.weight_init)
 
         if args.sync_bn:
-            print("Convert model with Sync BatchNorm")
+            if args.proc_id == 0:
+                print("Convert model with Sync BatchNorm")
             model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
         if not args.no_cuda:

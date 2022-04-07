@@ -1,3 +1,30 @@
+/*
+* ==============================================================================
+* Binaries and/or source for the following packages or projects are presented under one or more of the following open
+* source licenses:
+* nms_kernel.cu       The PersFormer Authors        Apache License, Version 2.0
+*
+* Contact simachonghao@pjlab.org.cn if you have any issue
+* 
+* See:
+* https://github.com/lucastabelini/LaneATT/tree/main/lib/nms/src/nms_kernel.cu
+*
+* Copyright (c) 2022 The PersFormer Authors. All Rights Reserved.
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+* ==============================================================================
+*/
+
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 
@@ -16,12 +43,6 @@
 
 #define DIVUP(m,n) (((m)+(n)-1) / (n))
 int64_t const threadsPerBlock = sizeof(unsigned long long) * 8;
-
-// The functions below originates from Fast R-CNN
-// See https://github.com/rbgirshick/py-faster-rcnn
-// Copyright (c) 2015 Microsoft
-// Licensed under The MIT License
-// Written by Shaoqing Ren
 
 template <typename scalar_t>
 // __device__ inline scalar_t devIoU(scalar_t const * const a, scalar_t const * const b) {

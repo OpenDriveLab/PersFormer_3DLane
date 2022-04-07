@@ -1,4 +1,13 @@
 # ==============================================================================
+# Binaries and/or source for the following packages or projects are presented under one or more of the following open
+# source licenses:
+# MinCostFlow.py       The PersFormer Authors        Apache License, Version 2.0
+#
+# Contact simachonghao@pjlab.org.cn if you have any issue
+# 
+# See:
+# https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection/blob/master/tools/MinCostFlow.py
+#
 # Copyright (c) 2022 The PersFormer Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

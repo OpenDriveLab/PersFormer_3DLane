@@ -1,4 +1,13 @@
 # ==============================================================================
+# Binaries and/or source for the following packages or projects are presented under one or more of the following open
+# source licenses:
+# Loss_crit.py       The PersFormer Authors        Apache License, Version 2.0
+#
+# Contact simachonghao@pjlab.org.cn if you have any issue
+# 
+# See:
+# https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection/blob/master/networks/Loss_crit.py
+#
 # Copyright (c) 2022 The PersFormer Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,10 +22,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-"""
-Loss functions
-"""
 
 import numpy as np
 import torch
