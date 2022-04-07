@@ -1,16 +1,4 @@
 # PersFormer
-**PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark** [[Paper]](https://arxiv.org/abs/2203.11089)  
-Li Chen<sup>1∗†</sup>, Chonghao Sima<sup>1,2∗</sup>, Yang Li<sup>1∗</sup>, Zehan Zheng<sup>1</sup>, Jiajie Xu<sup>3</sup>, Xiangwei Geng<sup>4</sup>,  Hongyang Li<sup>1,5†</sup>, Conghui He<sup>1</sup>, Jianping Shi<sup>4</sup>, Yu Qiao<sup>1</sup>, Junchi Yan<sup>5</sup>.   
-  
-<sup>1</sup> Shanghai AI Laboratory, Shanghai, China  
-<sup>2</sup> Purdue University, West Lafayette, IN, USA  
-<sup>3</sup> Carnegie Mellon University, Pittsburgh, PA, USA  
-<sup>4</sup> SenseTime Research, Beijing, China  
-<sup>5</sup> Shanghai Jiao Tong University, Shanghai, China  
-<sup>∗</sup> equal contributions.  
-<sup>†</sup> corresponding authors  
-  
-
 
 ## Introduction
   This repository is the PyTorch implementation for **PersFormer**.  
