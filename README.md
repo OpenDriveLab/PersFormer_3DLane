@@ -31,7 +31,7 @@ conda create -n lanemd_torch18 python=3.8 -y
 
 conda activate lanemd_torch18
 
-conda install pytorch==1.8.0 torchvision==0.9.0 torchaudio==0.8.0 cudatoolkit=10.1 -c pytorch
+pip3 install torch==1.8.1+cu111 torchvision==0.9.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html
 
 pip install -r requirements.txt
 
