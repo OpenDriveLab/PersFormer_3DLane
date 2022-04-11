@@ -21,7 +21,6 @@ from pathlib import Path
 # memcache related
 import numpy as np
 import cv2
-from petrel_client.client import Client
 
 import re
 
@@ -268,6 +267,8 @@ class LaneDatasetv2(Dataset):
         self.y_ref = args.y_ref
         self.ref_id = np.argmin(np.abs(self.num_y_steps - self.y_ref))
 
+        self.save_json_path = args.save_json_path
+
         # parse ground-truth file
         if 'waymo' in self.dataset_name:
             self._x_off_std, \
@@ -318,6 +319,7 @@ class LaneDatasetv2(Dataset):
         # memcache init 
         self.use_memcache = args.use_memcache
         if self.use_memcache:
+            from petrel_client.client import Client
             self._client = Client("~/petreloss.conf")
 
 
@@ -996,7 +998,7 @@ class LaneDatasetv2(Dataset):
         Path("./.cache/").mkdir(parents=True, exist_ok=True)
         if self.use_default_anchor:
             if "training/" in json_file_path:
-                if "lane3d_v2.0" in json_file_path:
+                if "lane3d_1000" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_train.pkl"):
                         with open("./.cache/waymo_1000_preprocess_train.pkl", "rb") as f:
                             cache_file = pickle.load(f)
@@ -1009,7 +1011,7 @@ class LaneDatasetv2(Dataset):
                             return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
-                if "lane3d_v2.0" in json_file_path:
+                if "lane3d_1000" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_valid.pkl"):
                         with open("./.cache/waymo_1000_preprocess_valid.pkl", "rb") as f:
                             cache_file = pickle.load(f)
@@ -1022,7 +1024,7 @@ class LaneDatasetv2(Dataset):
                             return self.read_cache_file_beta(cache_file)
         else:
             if "training/" in json_file_path:
-                if "lane3d_v2.0" in json_file_path:
+                if "lane3d_1000" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_train_newanchor.pkl"):
                         with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
@@ -1035,7 +1037,7 @@ class LaneDatasetv2(Dataset):
                             return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
-                if "lane3d_v2.0" in json_file_path:
+                if "lane3d_1000" in json_file_path:
                     if os.path.isfile("./.cache/waymo_1000_preprocess_valid_newanchor.pkl"):
                         with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
@@ -1156,12 +1158,12 @@ class LaneDatasetv2(Dataset):
         for i, path in enumerate(label_image_path):
             idx_path[i] = path
 
-        if "lane3d_v2.0" in json_file_path:
-            train_idx_file = './data_splits/waymo_1000_v1.1/train_idx_1000.json'
-            val_idx_file = './data_splits/waymo_1000_v1.1/val_idx_1000.json'
-        elif "lane3d_v1" in json_file_path:
-            train_idx_file = './data_splits/waymo_300_v1.1/train_idx_300.json'
-            val_idx_file = './data_splits/waymo_300_v1.1/val_idx_300.json'
+        if "lane3d_1000" in json_file_path:
+            train_idx_file = os.path.join(self.save_json_path, 'train_idx_1000.json')
+            val_idx_file = os.path.join(self.save_json_path, 'val_idx_1000.json')
+        elif "lane3d_300" in json_file_path:
+            train_idx_file = os.path.join(self.save_json_path, 'train_idx_300.json')
+            val_idx_file = os.path.join(self.save_json_path, 'val_idx_300.json')
         else:
             raise Exception("openlane version not supported")
         
@@ -1400,37 +1402,36 @@ class LaneDatasetv2(Dataset):
         cache_file["anchor_origins"] = anchor_origins
         cache_file["anchor_angles"] = anchor_angles
         
-        if "Waymo" in json_file_path or "waymo" in json_file_path:
-            if self.use_default_anchor:
-                if "training/" in json_file_path:
-                    if "lane3d_v2.0" in json_file_path:
-                        with open("./.cache/waymo_1000_preprocess_train.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                    else:
-                        with open("./.cache/waymo_preprocess_train.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                if "validation/" in json_file_path:
-                    if "lane3d_v2.0" in json_file_path:
-                        with open("./.cache/waymo_1000_preprocess_valid.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                    else:
-                        with open("./.cache/waymo_preprocess_valid.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-            else:
-                if "training/" in json_file_path:
-                    if "lane3d_v2.0" in json_file_path:
-                        with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                    else:
-                        with open("./.cache/waymo_preprocess_train_newanchor.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                if "validation/" in json_file_path:
-                    if "lane3d_v2.0" in json_file_path:
-                        with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
-                    else:
-                        with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "wb") as f:
-                            pickle.dump(cache_file, f)
+        if self.use_default_anchor:
+            if "training/" in json_file_path:
+                if "lane3d_1000" in json_file_path:
+                    with open("./.cache/waymo_1000_preprocess_train.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+                else:
+                    with open("./.cache/waymo_preprocess_train.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+            if "validation/" in json_file_path:
+                if "lane3d_1000" in json_file_path:
+                    with open("./.cache/waymo_1000_preprocess_valid.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+                else:
+                    with open("./.cache/waymo_preprocess_valid.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+        else:
+            if "training/" in json_file_path:
+                if "lane3d_1000" in json_file_path:
+                    with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+                else:
+                    with open("./.cache/waymo_preprocess_train_newanchor.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+            if "validation/" in json_file_path:
+                if "lane3d_1000" in json_file_path:
+                    with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
+                else:
+                    with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "wb") as f:
+                        pickle.dump(cache_file, f)
 
         return lane_x_off_std, lane_y_off_std, lane_z_std,\
                anchor_origins, anchor_angles
@@ -1910,7 +1911,7 @@ def get_loader(transformed_dataset, args):
         if hasattr(transformed_dataset, '_label_image_path'):
             print(transformed_dataset._label_image_path[discarded_sample_start: len(sample_idx)])
         else:
-            print(discarded_sample_start)
+            print(len(sample_idx) - discarded_sample_start)
     sample_idx = sample_idx[0 : discarded_sample_start]
     
     if args.dist:

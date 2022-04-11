@@ -127,3 +127,22 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Directories
+data_splits
+sample_data
+Saved
+.*
+*.out
+!/.gitignore
+
+# temporary files
+*~
+*.pyc
+test.png
+!/example/test.png
+
+# deform att
+models/ops/build
+models/ops/dist
+*.egg-info

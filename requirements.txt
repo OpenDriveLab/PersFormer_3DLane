@@ -14,4 +14,5 @@ scikit_learn==0.23.2
 tensorboard==2.3.0
 gdown==3.12.2
 ortools==9.2.9972
-geffnet
+geffnet==1.0.2
+tensorboardX==2.5

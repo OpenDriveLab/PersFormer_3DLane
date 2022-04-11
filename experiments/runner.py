@@ -56,6 +56,7 @@ class Runner:
                 torch.cuda.empty_cache()
 
         save_id = args.mod
+        args.save_json_path = args.save_path
         args.save_path = os.path.join(args.save_path, save_id)
         if args.proc_id == 0:
             mkdir_if_missing(args.save_path)

@@ -26,8 +26,9 @@ def config(args):
 
     # 1000 sequence
     args.dataset_name = 'waymo'
-    args.dataset_dir = '/mnt/lustre/share_data/PerceptionX/data/waymo_annotation_1110/images/'
-    args.data_dir = '/mnt/lustre/share_data/PerceptionX/data/waymo_annotation_1110/lane3d_v2.0/'
+    args.dataset_dir = '/mnt/disk01/openlane/images/'
+    # args.data_dir = '/mnt/disk01/openlane/lane3d_v2.0/'
+    args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
 
     if 'waymo' in args.dataset_name:
         waymo_config(args)
@@ -129,6 +130,12 @@ def config(args):
     args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
     args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
     args.num_y_steps = len(args.anchor_y_steps)
+
+    # memcache
+    args.use_memcache = False
+
+    # ddp init
+    args.use_slurm = False
 
 
 def sim3d_config(args):

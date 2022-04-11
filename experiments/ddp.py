@@ -20,6 +20,19 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import os
 import subprocess
+import numpy as np
+import random
+
+def setup_dist_launch(args):
+    args.proc_id = args.local_rank
+    world_size = torch.cuda.device_count()
+    print("proc_id: " + str(args.proc_id))
+    print("world size: " + str(world_size))
+    print("local_rank: " + str(args.local_rank))
+
+    os.environ['WORLD_SIZE'] = str(world_size)
+    os.environ['RANK'] = str(args.proc_id)
+    os.environ['LOCAL_RANK'] = str(args.local_rank)
 
 def setup_slurm(args):
     if mp.get_start_method(allow_none=True) is None:
@@ -55,7 +68,10 @@ def setup_distributed(args):
 def ddp_init(args):
     args.proc_id, args.gpu, args.world_size = 0, 0, 1
 
-    setup_slurm(args)
+    if args.use_slurm == True:
+        setup_slurm(args)
+    else:
+        setup_dist_launch(args)
 
     if 'WORLD_SIZE' in os.environ:
         args.distributed = int(os.environ['WORLD_SIZE']) >= 1
@@ -66,7 +82,9 @@ def ddp_init(args):
     # deterministic
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-    torch.manual_seed(0)
+    torch.manual_seed(args.proc_id)
+    np.random.seed(args.proc_id)
+    random.seed(args.proc_id)
 
 def to_python_float(t):
     if hasattr(t, 'item'):
