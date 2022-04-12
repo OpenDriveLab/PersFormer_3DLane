@@ -19,6 +19,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   - [Dataset](#dataset)
   - [Training and evaluation](#training-and-evaluation)
 - [Benchmark](#benchmark)
+- [Visualization](#visualization)
 - [Citation](#citation)
 - [Acknowledge](#acknowledge)
 - [License](#license)  
