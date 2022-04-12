@@ -20,3 +20,11 @@ python setup.py install
 cd ../ops/
 bash make.sh
 ```
+## Known Issues
+- If you couldn't compile the `nms` operator because of error like `nvcc fatal   : Unsupported gpu architecture 'compute_86'`, try specifying your cuda path to some environment variable.
+    ```
+    export LIBRARY_PATH=/usr/local/cuda-11.0/lib64/:$LIBRARY_PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda-11.0/lib64/:$LD_LIBRARY_PATH
+    export PATH=/usr/local/cuda-11.0/bin/:$PATH
+    export CUDA_HOME=/usr/local/cuda-11.0/
+    ```
