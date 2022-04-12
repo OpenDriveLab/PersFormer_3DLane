@@ -2,6 +2,7 @@
 ![teaser](imgs/pipeline.png)
 > **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**
 > Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan.
+> 
 > <sup>∗</sup> equal contributions.  
 > <sup>†</sup> corresponding authors           
 > [arXiV 2203.11089](https://arxiv.org/abs/2203.11089)
