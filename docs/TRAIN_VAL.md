@@ -2,45 +2,49 @@
 
 Please specify your config in `config/persformer_openlane.py`, especially the `args.dataset_dir` and `args.data_dir` after downloading the [OpenLane](https://github.com/OpenPerceptionX/OpenLane) Dataset or [Apollo](https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection) dataset.  
 Other config details please see `utils/utils.py`.  
-
 ## Training
-- For **training**, set `args.evaluate = False` , and run:  
+- For **training**: set `args.evaluate = False` , and specify your setup in `$ $` ,  
+then choose one way to run:  
 ```
 # using torch.distributed.launch to init
-python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE --nepochs=NUM_EPOCHS
+python -m torch.distributed.launch --nproc_per_node $NUM_GPUS$ main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$ --nepochs=$NUM_EPOCHS$
+
 # or using slurm to init
-srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE --nepochs=NUM_EPOCHS
+srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$NUM_GPUS$ --ntasks-per-node=$NUM_GPUS$ python main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$ --nepochs=$NUM_EPOCHS$
 ```
 
 ## Evaluation
-- For **evaluation**, set `args.evaluate = True` , and run:
+- For **evaluation**: set `args.evaluate = True` , and specify your setup in `$ $` ,  
+then choose one way to run:  
 ```
 # using torch.distributed.launch to init
-python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE
+python -m torch.distributed.launch --nproc_per_node $NUM_GPUS$ main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$
+
 # or using slurm to init
-srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE
+srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$NUM_GPUS$ --ntasks-per-node=$NUM_GPUS$ python main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$
 ``` 
-- We provide a pretrain model [here](https://drive.google.com/file/d/1FzrOn6Y9BifyBXUUVcDw9jYePAgKjTTB/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
+- We provide a pretrained model [here](https://drive.google.com/file/d/1FzrOn6Y9BifyBXUUVcDw9jYePAgKjTTB/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
 ```
 ├── config/...
 ├── data/...
 ├── images
 ├── data_splits
-|   └── waymo
-|   |   └── PersFormer
-|   |   |   └── model_best_epoch_40.pth.tar
+|   └── openlane
+|       └── PersFormer
+|           └── model_best_epoch_40.pth.tar
 ├── experiments/...
 ├── imgs/...
 ├── models/...
 ├── utils/...
 └── main_persformer.py
 ```
-And run the following code which specify the *EXPR_NAME*
+And run the following code which specify the *\$EXPR_NAME\$*
 ```
 # using torch.distributed.launch to init
-python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=PersFormer --batch_size=BATCH_SIZE
+python -m torch.distributed.launch --nproc_per_node $NUM_GPUS$ main_persformer.py --mod=PersFormer --batch_size=$BATCH_SIZE$
+
 # or using slurm to init
-srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=PersFormer --batch_size=BATCH_SIZE
+srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$NUM_GPUS$ --ntasks-per-node=$NUM_GPUS$ python main_persformer.py --mod=PersFormer --batch_size=$BATCH_SIZE$
 ```
 We provide our results on 4 3090 GPUs and `torch 1.8.1+cu111` as follow:
 ```

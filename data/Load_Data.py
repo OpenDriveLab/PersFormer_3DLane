@@ -270,12 +270,12 @@ class LaneDataset(Dataset):
         self.save_json_path = args.save_json_path
 
         # parse ground-truth file
-        if 'waymo' in self.dataset_name:
+        if 'openlane' in self.dataset_name:
             self._x_off_std, \
                 self._y_off_std, \
                 self._z_std, \
                 self._im_anchor_origins, \
-                self._im_anchor_angles = self.init_dataset_waymo_beta(dataset_base_dir, json_file_path)
+                self._im_anchor_angles = self.init_dataset_openlane_beta(dataset_base_dir, json_file_path)
             args.im_anchor_origins = self._im_anchor_origins
             args.im_anchor_angles = self._im_anchor_angles
         else:  # assume loading apollo sim 3D lane
@@ -323,7 +323,7 @@ class LaneDataset(Dataset):
             self._client = Client("~/petreloss.conf")
 
 
-    def preprocess_data_from_json_waymo(self, idx_json_file):
+    def preprocess_data_from_json_openlane(self, idx_json_file):
 
         _label_image_path = None
         _label_cam_height = None
@@ -383,13 +383,13 @@ class LaneDataset(Dataset):
                 lane = np.array(gt_lane_packed['xyz'])
                 lane_visibility = np.array(gt_lane_packed['visibility'])
 
-                # Coordinate convertion for Waymo_300 data
+                # Coordinate convertion for openlane_300 data
                 lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
                 cam_representation = np.linalg.inv(
                                         np.array([[0, 0, 1, 0],
                                                     [-1, 0, 0, 0],
                                                     [0, -1, 0, 0],
-                                                    [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to waymo camera
+                                                    [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to openlane camera
                 lane = np.matmul(cam_extrinsics, np.matmul(cam_representation, lane))
 
                 lane = lane[0:3, :].T
@@ -409,7 +409,7 @@ class LaneDataset(Dataset):
 
         if not self.fix_cam:
             cam_K = cam_intrinsics
-            if 'waymo' in self.dataset_name:
+            if 'openlane' in self.dataset_name:
                 cam_E = cam_extrinsics
                 P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
                 H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
@@ -518,7 +518,7 @@ class LaneDataset(Dataset):
         # preprocess data from json file
         _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
             _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
-            _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_waymo(idx_json_file)
+            _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_openlane(idx_json_file)
 
         with open(idx_json_file, 'r') as file:
             file_lines = [line for line in file]
@@ -528,7 +528,7 @@ class LaneDataset(Dataset):
         if not self.fix_cam:
             gt_cam_height = _label_cam_height
             gt_cam_pitch = _label_cam_pitch
-            if 'waymo' in self.dataset_name:
+            if 'openlane' in self.dataset_name:
                 intrinsics = cam_intrinsics
                 extrinsics = cam_extrinsics
             else:
@@ -546,7 +546,7 @@ class LaneDataset(Dataset):
 
         img_name = _label_image_path
 
-        if 'waymo' in self.dataset_name:
+        if 'openlane' in self.dataset_name:
             pattern = "/segment-(.*)_with_camera_labels"
             seg_result = re.search(pattern=pattern, string=img_name)
             # print(seg_result.group(1))
@@ -603,7 +603,7 @@ class LaneDataset(Dataset):
                 gt_anchor[ass_id, 0, 2*self.num_y_steps:3*self.num_y_steps] = visibility
 
             # gt_anchor[ass_id, 0, -1] = 1.0
-            if 'waymo' not in self.dataset_name:
+            if 'openlane' not in self.dataset_name:
                 gt_anchor[ass_id, 0, self.anchor_dim - self.num_category] = 0.0
                 gt_anchor[ass_id, 0, -1] = 1.0
             else:
@@ -980,7 +980,7 @@ class LaneDataset(Dataset):
                anchor_origins, anchor_angles
 
 
-    def init_dataset_waymo_beta(self, dataset_base_dir, json_file_path):
+    def init_dataset_openlane_beta(self, dataset_base_dir, json_file_path):
         """
         :param dataset_info_file:
         :return: image paths, labels in unormalized net input coordinates
@@ -994,58 +994,58 @@ class LaneDataset(Dataset):
         # save label list and this determine the idx order
         self._label_list = label_list
         
-        # accelerate Waymo dataset IO
+        # accelerate openlane dataset IO
         Path("./.cache/").mkdir(parents=True, exist_ok=True)
         if self.use_default_anchor:
             if "training/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    if os.path.isfile("./.cache/waymo_1000_preprocess_train.pkl"):
-                        with open("./.cache/waymo_1000_preprocess_train.pkl", "rb") as f:
+                    if os.path.isfile("./.cache/openlane_1000_preprocess_train.pkl"):
+                        with open("./.cache/openlane_1000_preprocess_train.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
                 else:  
-                    if os.path.isfile("./.cache/waymo_preprocess_train.pkl"):
+                    if os.path.isfile("./.cache/openlane_preprocess_train.pkl"):
                         # TODO: need to change later
-                        with open("./.cache/waymo_preprocess_train.pkl", "rb") as f:
+                        with open("./.cache/openlane_preprocess_train.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    if os.path.isfile("./.cache/waymo_1000_preprocess_valid.pkl"):
-                        with open("./.cache/waymo_1000_preprocess_valid.pkl", "rb") as f:
+                    if os.path.isfile("./.cache/openlane_1000_preprocess_valid.pkl"):
+                        with open("./.cache/openlane_1000_preprocess_valid.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
                 else:
-                    if os.path.isfile("./.cache/waymo_preprocess_valid.pkl"):
+                    if os.path.isfile("./.cache/openlane_preprocess_valid.pkl"):
                         # TODO: need to change later
-                        with open("./.cache/waymo_preprocess_valid.pkl", "rb") as f:
+                        with open("./.cache/openlane_preprocess_valid.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
         else:
             if "training/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    if os.path.isfile("./.cache/waymo_1000_preprocess_train_newanchor.pkl"):
-                        with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "rb") as f:
+                    if os.path.isfile("./.cache/openlane_1000_preprocess_train_newanchor.pkl"):
+                        with open("./.cache/openlane_1000_preprocess_train_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
                 else:  
-                    if os.path.isfile("./.cache/waymo_preprocess_train_newanchor.pkl"):
+                    if os.path.isfile("./.cache/openlane_preprocess_train_newanchor.pkl"):
                         # TODO: need to change later
-                        with open("./.cache/waymo_preprocess_train_newanchor.pkl", "rb") as f:
+                        with open("./.cache/openlane_preprocess_train_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
             
             elif "validation/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    if os.path.isfile("./.cache/waymo_1000_preprocess_valid_newanchor.pkl"):
-                        with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "rb") as f:
+                    if os.path.isfile("./.cache/openlane_1000_preprocess_valid_newanchor.pkl"):
+                        with open("./.cache/openlane_1000_preprocess_valid_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
                 else:
-                    if os.path.isfile("./.cache/waymo_preprocess_valid_newanchor.pkl"):
+                    if os.path.isfile("./.cache/openlane_preprocess_valid_newanchor.pkl"):
                         # TODO: need to change later
-                        with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "rb") as f:
+                        with open("./.cache/openlane_preprocess_valid_newanchor.pkl", "rb") as f:
                             cache_file = pickle.load(f)
                             return self.read_cache_file_beta(cache_file)
 
@@ -1111,16 +1111,16 @@ class LaneDataset(Dataset):
                     lane = np.array(gt_lane_packed['xyz'])
                     lane_visibility = np.array(gt_lane_packed['visibility'])
 
-                    # Coordinate convertion for Waymo_300 data
+                    # Coordinate convertion for openlane_300 data
                     lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
                     cam_representation = np.linalg.inv(
                                             np.array([[0, 0, 1, 0],
                                                       [-1, 0, 0, 0],
                                                       [0, -1, 0, 0],
-                                                      [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to waymo camera
+                                                      [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to openlane camera
                     lane = np.matmul(cam_extrinsics, np.matmul(cam_representation, lane))
 
-                    # # Coordinate fix for Waymo_87 data
+                    # # Coordinate fix for openlane_87 data
                     # lane = np.vstack((lane.T, np.ones((1, len(lane)))))
                     # false_extrinsic = np.array([[0, -1, 0, 0],
                     #                             [1, 0, 0, 0],
@@ -1231,7 +1231,7 @@ class LaneDataset(Dataset):
             # fetch camera height and pitch
             if not self.fix_cam:
                 cam_K = cam_intrinsics_all[idx]
-                if 'waymo' in self.dataset_name:
+                if 'openlane' in self.dataset_name:
                     cam_E = cam_extrinsics_all[idx]
                     P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
                     H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
@@ -1405,32 +1405,32 @@ class LaneDataset(Dataset):
         if self.use_default_anchor:
             if "training/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    with open("./.cache/waymo_1000_preprocess_train.pkl", "wb") as f:
+                    with open("./.cache/openlane_1000_preprocess_train.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
                 else:
-                    with open("./.cache/waymo_preprocess_train.pkl", "wb") as f:
+                    with open("./.cache/openlane_preprocess_train.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
             if "validation/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    with open("./.cache/waymo_1000_preprocess_valid.pkl", "wb") as f:
+                    with open("./.cache/openlane_1000_preprocess_valid.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
                 else:
-                    with open("./.cache/waymo_preprocess_valid.pkl", "wb") as f:
+                    with open("./.cache/openlane_preprocess_valid.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
         else:
             if "training/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    with open("./.cache/waymo_1000_preprocess_train_newanchor.pkl", "wb") as f:
+                    with open("./.cache/openlane_1000_preprocess_train_newanchor.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
                 else:
-                    with open("./.cache/waymo_preprocess_train_newanchor.pkl", "wb") as f:
+                    with open("./.cache/openlane_preprocess_train_newanchor.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
             if "validation/" in json_file_path:
                 if "lane3d_1000" in json_file_path:
-                    with open("./.cache/waymo_1000_preprocess_valid_newanchor.pkl", "wb") as f:
+                    with open("./.cache/openlane_1000_preprocess_valid_newanchor.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
                 else:
-                    with open("./.cache/waymo_preprocess_valid_newanchor.pkl", "wb") as f:
+                    with open("./.cache/openlane_preprocess_valid_newanchor.pkl", "wb") as f:
                         pickle.dump(cache_file, f)
 
         return lane_x_off_std, lane_y_off_std, lane_z_std,\
@@ -1598,7 +1598,7 @@ class LaneDataset(Dataset):
         """
         if hasattr(self, '_cam_extrinsics_all'):
             if not self.fix_cam:
-                if 'waymo' in self.dataset_name:
+                if 'openlane' in self.dataset_name:
                     H_g2im = homograpthy_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
                     P_g2im = projection_g2im_extrinsic(self._cam_extrinsics_all[idx], self._cam_intrinsics_all[idx])
                 else:
@@ -1652,7 +1652,7 @@ class LaneDataset(Dataset):
 
     def transform_mats_impl(self, cam_extrinsics, cam_intrinsics, cam_pitch, cam_height):
         if not self.fix_cam:
-            if 'waymo' in self.dataset_name:
+            if 'openlane' in self.dataset_name:
                 H_g2im = homograpthy_g2im_extrinsic(cam_extrinsics, cam_intrinsics)
                 P_g2im = projection_g2im_extrinsic(cam_extrinsics, cam_intrinsics)
             else:

@@ -78,7 +78,7 @@ class Runner:
         else:
             self.criterion = Loss_crit.Laneline_loss_gflat_multiclass(self.train_dataset.num_types, args.num_y_steps,
                                                                       args.pred_cam, args.num_category, args.no_3d, args.loss_dist)
-        if 'waymo' in args.dataset_name:
+        if 'openlane' in args.dataset_name:
             self.evaluator = eval_3D_lane.LaneEval(args)
         else:
             self.evaluator = eval_3D_lane.LaneEval(args)
@@ -440,8 +440,8 @@ class Runner:
                         img_path = json_line["file_path"]
                         self.save_eval_result(args, img_path, pred_decoded_2d[j], pred_decoded_2d_cate[j], lanelines_pred, lanelines_prob)
 
-            if 'waymo' in args.dataset_name:
-                eval_stats = self.evaluator.bench_one_submit_waymo_DDP(pred_lines_sub, gt_lines_sub, vis=False)
+            if 'openlane' in args.dataset_name:
+                eval_stats = self.evaluator.bench_one_submit_openlane_DDP(pred_lines_sub, gt_lines_sub, vis=False)
             else:
                 eval_stats = self.evaluator.bench_one_submit(pred_lines_sub, gt_lines_sub, vis=False)
 
@@ -510,7 +510,7 @@ class Runner:
 
     def _get_train_dataset(self):
         args = self.args
-        if 'waymo' in args.dataset_name:
+        if 'openlane' in args.dataset_name:
             train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=True)
         else:
             train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
@@ -523,7 +523,7 @@ class Runner:
 
     def _get_valid_dataset(self):
         args = self.args
-        if 'waymo' in args.dataset_name:
+        if 'openlane' in args.dataset_name:
             if not args.evaluate_case:
                 valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
             else:
@@ -547,15 +547,8 @@ class Runner:
         if os.path.isfile(val_gt_file):
             write_file = False
         # extract valid set labels for evaluation later
-        '''
-            How to bypass shabi valid_set_labels & val_gt_file:
-                1. in dataloader, read entire json as a dict and return in __getitem__
-                2. in validate, replace every access of valid_set_labels by the json dict returned from dataloader
-                3. in validate, save the returned json into gpu specific txt file and then read later in bench one submit
-        '''
         valid_set_labels = []
-        if 'waymo' in args.dataset_name:
-            # valid_set_labels = []
+        if 'openlane' in args.dataset_name:
             if args.proc_id == 0 and write_file:
                 with open(val_gt_file, 'w') as val_file:
                     label_list = glob.glob(args.data_dir + 'validation/' + '**/*.json', recursive=True)
@@ -709,9 +702,9 @@ class Runner:
         else:
             # epoch depended loss
             if epoch > args.seg_start_epoch:
-                loss = loss_3d + args.loss_att_weight * loss_att + args.loss_seg_weight * loss_seg
+                loss = loss_3d + args.loss_att_weight * loss_att + args.loss_seg_weight * loss_seg + 0.0 * uncertainty_loss[0:6].sum()
             else:
-                loss = loss_3d + args.loss_att_weight * loss_att + 0.0 * loss_seg
+                loss = loss_3d + args.loss_att_weight * loss_att + 0.0 * loss_seg + 0.0 * uncertainty_loss[0:6].sum()
         return loss
     
     def reduce_all_loss(self, args, loss_list, loss, loss_3d_dict, loss_att_dict, num):

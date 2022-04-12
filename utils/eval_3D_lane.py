@@ -84,18 +84,18 @@ class LaneEval(object):
         # only keep the visible portion
         gt_lanes = [prune_3d_lane_by_visibility(np.array(gt_lane), np.array(gt_visibility[k])) for k, gt_lane in
                     enumerate(gt_lanes)]
-        if 'waymo' in self.dataset_name:
+        if 'openlane' in self.dataset_name:
             gt_category = [gt_category[k] for k, lane in enumerate(gt_lanes) if lane.shape[0] > 1]
         gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
 
         # only consider those gt lanes overlapping with sampling range
-        if 'waymo' in self.dataset_name:
+        if 'openlane' in self.dataset_name:
             gt_category = [gt_category[k] for k, lane in enumerate(gt_lanes)
                            if lane[0, 1] < self.y_samples[-1] and lane[-1, 1] > self.y_samples[0]]
         gt_lanes = [lane for lane in gt_lanes if lane[0, 1] < self.y_samples[-1] and lane[-1, 1] > self.y_samples[0]]
 
         gt_lanes = [prune_3d_lane_by_range(np.array(lane), 3 * self.x_min, 3 * self.x_max) for lane in gt_lanes]
-        if 'waymo' in self.dataset_name:
+        if 'openlane' in self.dataset_name:
             gt_category = [gt_category[k] for k, lane in enumerate(gt_lanes) if lane.shape[0] > 1]
         gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
 
@@ -315,7 +315,7 @@ class LaneEval(object):
 
 
     # compare predicted set and ground-truth set using a fixed lane probability threshold
-    def bench_one_submit_waymo_DDP(self, pred_lines_sub, gt_lines_sub, prob_th=0.5, vis=False):
+    def bench_one_submit_openlane_DDP(self, pred_lines_sub, gt_lines_sub, prob_th=0.5, vis=False):
         json_gt = gt_lines_sub
         json_pred = pred_lines_sub
 

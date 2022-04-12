@@ -647,7 +647,7 @@ class Visualizer:
         assert(idx.shape[0] == images.shape[0])
         assert(idx.shape[0] == gt.shape[0])
         assert(idx.shape[0] == pred.shape[0])
-        if not 'waymo' in self.dataset_name:
+        if not 'openlane' in self.dataset_name:
             assert(idx.shape[0] == pred_cam_pitch.shape[0])
             assert(idx.shape[0] == pred_cam_height.shape[0])
         if laneatt_gt is not None:
@@ -686,7 +686,7 @@ class Visualizer:
 
             H_g2im, P_g2im, H_crop, H_im2ipm = dataset.transform_mats(idx[i])
             P_gt = np.matmul(H_crop, H_g2im)
-            if 'waymo' in self.dataset_name:
+            if 'openlane' in self.dataset_name:
                 P_pred = P_gt
             else:
                 H_g2im_pred = homograpthy_g2im(pred_cam_pitch[i],

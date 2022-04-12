@@ -20,17 +20,17 @@ import os.path as ops
 
 def config(args):
     # 300 sequence
-    # args.dataset_name = 'waymo'
+    # args.dataset_name = 'openlane'
     # args.dataset_dir = '/mnt/disk01/openlane/images/'
     # args.data_dir = '/mnt/disk01/openlane/lane3d_300/'
 
     # 1000 sequence
-    args.dataset_name = 'waymo'
+    args.dataset_name = 'openlane'
     args.dataset_dir = '/mnt/disk01/openlane/images/'
     args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
 
-    if 'waymo' in args.dataset_name:
-        waymo_config(args)
+    if 'openlane' in args.dataset_name:
+        openlane_config(args)
     else:
         sim3d_config(args)
 
@@ -170,7 +170,7 @@ def sim3d_config(args):
     args.batch_norm = True
 
 
-def waymo_config(args):
+def openlane_config(args):
     # set dataset parameters
     args.org_h = 1280
     args.org_w = 1920

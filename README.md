@@ -1,9 +1,9 @@
 # PersFormer
-![teaser](imgs/pipeline.svg)
-<!-- <img src="imgs/pipeline.png" alt="drawing" width="200"/> -->
-> **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**
+![pipeline](imgs/pipeline.svg)  
+
+> **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**  
 > Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan.
-> 
+>  
 > <sup>∗</sup> equal contributions.  
 > <sup>†</sup> corresponding authors           
 > [arXiV 2203.11089](https://arxiv.org/abs/2203.11089)
@@ -22,7 +22,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 - [Benchmark](#benchmark)
 - [Visualization](#visualization)
 - [Citation](#citation)
-- [Acknowledge](#acknowledge)
+- [Acknowledgements](#acknowledgements)
 - [License](#license)  
   
 ## Changelog
@@ -63,10 +63,11 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 
 ## Visualization
 Following are the visualization results of PersFormer on OpenLane dataset and Apollo dataset.
-- OpenLane visualization results
-![teaser](imgs/openlane_vis.png)
-- Apollo 3D Synthetic visualization results
-![teaser](imgs/apollo_vis.png)
+- OpenLane visualization results  
+<img src=imgs/openlane_vis.png width="720" height="720" alt="openlane_vis"/><br/> 
+- Apollo 3D Synthetic visualization results  
+<img src=imgs/apollo_vis.png width="720" height="500" alt="apollo_vis"/><br/> 
+  
 
 ## Citation
   Please use the following citation if you find our repo or our paper [PersFormer](https://arxiv.org/abs/2203.11089) useful:
