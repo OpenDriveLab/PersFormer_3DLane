@@ -21,7 +21,7 @@ cd ../ops/
 bash make.sh
 ```
 ## Known Issues
-- If you couldn't compile the `nms` operator because of error like `nvcc fatal   : Unsupported gpu architecture 'compute_86'`, try specifying your cuda path to some environment variable.
+- If you couldn't compile the `nms` operator because of error like `nvcc fatal   : Unsupported gpu architecture 'compute_86'`, try specifying your cuda path to some environment variable. Following is an example.
     ```
     export LIBRARY_PATH=/usr/local/cuda-11.0/lib64/:$LIBRARY_PATH
     export LD_LIBRARY_PATH=/usr/local/cuda-11.0/lib64/:$LD_LIBRARY_PATH
