@@ -16,11 +16,8 @@
 
 import torch.optim
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.autograd import Variable
-import torchvision.models as models
 from utils.utils import *
-
 from .libs.layers import *
 
 # initialize base_grid with different sizes can adapt to different sizes

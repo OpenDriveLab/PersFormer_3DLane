@@ -16,11 +16,7 @@
 
 import torch.optim
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-import torchvision.models as models
 from utils.utils import *
-import copy
 from typing import Optional, List
 from torch import Tensor
 import math

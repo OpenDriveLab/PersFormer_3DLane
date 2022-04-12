@@ -1,11 +1,16 @@
 # PersFormer
+![teaser](imgs/pipeline.png)
+> **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**
+> Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan.
+> <sup>∗</sup> equal contributions.  
+> <sup>†</sup> corresponding authors           
+> [arXiV 2203.11089](https://arxiv.org/abs/2203.11089)
+
 
 ## Introduction
-  This repository is the PyTorch implementation for **PersFormer**.  
-  
-![](pipeline.png)  
+This repository is the PyTorch implementation for **PersFormer**.  
 
-We present PersFormer: an end-to-end monocular 3D lane detector with a novel Transformer-based spatial feature transformation module. Our model generates BEV features by attending to related front-view local regions with camera parameters as a reference. PersFormer adopts a unified 2D/3D anchor design and an auxiliary task to detect 2D/3D lanes simultaneously, enhancing the feature consistency and sharing the benefits of multi-task learning.
+PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-based spatial feature transformation module. Our model generates BEV features by attending to related front-view local regions with camera parameters as a reference. It adopts a unified 2D/3D anchor design and an auxiliary task to detect 2D/3D lanes simultaneously, enhancing the feature consistency and sharing the benefits of multi-task learning.
   
 - [Changelog](#changelog)
 - [Get Started](#get-started)
@@ -18,47 +23,23 @@ We present PersFormer: an end-to-end monocular 3D lane detector with a novel Tra
 - [License](#license)  
   
 ## Changelog
-**2022-4-7**: We released the v1.0 code for PersFormer.  
+**2022-4-12**: We released the v1.0 code for PersFormer.  
 
 ## Get Started
   
 ### Installation
-```
-git clone https://github.com/OpenPerceptionX/PersFormer_3DLane.git
-cd PersFormer_3DLane/
-
-conda create -n lanemd_torch18 python=3.8 -y
-
-conda activate lanemd_torch18
-
-pip3 install torch==1.8.1+cu111 torchvision==0.9.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html
-
-pip install -r requirements.txt
-
-cd models/nms/
-python setup.py install
-
-cd ../ops/
-bash make.sh
-```
+- To run PersFormer, make sure you are using a machine with **at least** one GPU.
+- Please follow [INSTALL.md](docs/INSTALL.md) to setup the environment.
   
 ### Dataset
-Please refer to [OpenLane](https://github.com/OpenPerceptionX/OpenLane) for downloading.
+- Please refer to [OpenLane](https://github.com/OpenPerceptionX/OpenLane) for downloading OpenLane Dataset.
+- Please refer to [Gen-LaneNet](https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection) for downloading Apollo 3D Lane Synthetic Dataset.
 
-### Demo 
-Please specify your config in `config/persformer_openlane.py`, especially the `args.dataset_dir` and `args.data_dir` after downloading the [OpenLane](https://github.com/OpenPerceptionX/OpenLane) Dataset.  
-Other config details please see `utils/utils.py`.  
-- For **training**, set `args.evaluate = False` , and run:  
-```
-python main_persformer.py --batch_size=$BATCH_SIZE$ --nepochs=$EPOCHS$
-```
-- For **evaluation**, set `args.evaluate = True` , and run:
-```
-python main_persformer.py --batch_size=$BATCH_SIZE$
-``` 
+### Training and evaluation 
+- Please follow [TRAIN_VAL.md](docs/TRAIN_VAL.md) to train and evaluate the model.
 
 ## Benchmark
-  - 3D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane)
+  - 3D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane).
   
 | Method     | All  | Up &<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |  
 | :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|  
@@ -66,8 +47,26 @@ python main_persformer.py --batch_size=$BATCH_SIZE$
 | 3DLaneNet  | 40.2 | 37.7 | 43.2 | 43.0 | 39.3 | 29.3 | 36.5 |  
 |**PersFormer**|**47.8**|**42.4**|**52.8**|**48.7**|**46.0**|**37.9**|**44.6**|  
   
+  - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is LaneATT.
+  
+| Method     | All  | Up&<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |
+| :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|
+| LaneATT-S  | 28.3 | 25.3 | 25.8 | 32.0 | 27.6 | 14.0 | 24.3 | 
+| LaneATT-M  | 31.0 | 28.3 | 27.4 | 34.7 | 30.2 | 17.0 | 26.5 | 
+| PersFormer | 42.0 | 40.7 | 46.3 | 43.7 | 36.1 | 28.9 | 41.2 |  
+| CondLaneNet-S | 52.3 | 55.3 | 57.5 | 45.8 | 46.6 | 48.4 | 45.5 | 
+| CondLaneNet-M | 55.0 | 58.5 | 59.4 | 49.2 | 48.6 | 50.7 | 47.8 | 
+|**CondLaneNet-L**|**59.1**|**62.1**|**62.9**|**54.7**|**51.0**|**55.7**|**52.3**| 
+
+## Visualization
+Following are the visualization results of PersFormer on OpenLane dataset and Apollo dataset.
+- OpenLane visualization results
+![teaser](imgs/openlane_vis.jpg)
+- Apollo 3D Synthetic visualization results
+![teaser](imgs/apollo_vis.jpg)
+
 ## Citation
-  Please use the following citation when referencing [PersFormer](https://arxiv.org/abs/2203.11089):
+  Please use the following citation if you find our repo or our paper [PersFormer](https://arxiv.org/abs/2203.11089) useful:
 
     @article{chen2022persformer,
       title={PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark},
@@ -77,7 +76,7 @@ python main_persformer.py --batch_size=$BATCH_SIZE$
     }  
 
 ## Acknowledgements
-  We would like to acknowledge the great support from SenseBee labelling team at SenseTime Research, and the fruitful discussions and comments for this project from Zhiqi Li, Yuenan Hou, Yu Liu.
+  We would like to acknowledge the great support from SenseBee labelling team at SenseTime Research, and the fruitful discussions and comments for this project from Zhiqi Li, Yuenan Hou, Yu Liu. We thank for the code implementation from [Gen-LaneNet](https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection), [LaneATT](https://github.com/lucastabelini/LaneATT) and [Deformable DETR](https://github.com/fundamentalvision/Deformable-DETR). 
 
 
 ## License

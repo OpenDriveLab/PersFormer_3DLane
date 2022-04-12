@@ -628,7 +628,8 @@ class Visualizer:
         ax.w_xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
         ax.w_yaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
         ax.w_zaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
-        plt.gca().set_box_aspect((1,1.5,0.5))
+        # plt.gca().set_box_aspect((1,1.5,0.5))
+        ax.set_box_aspect((1,1.5,0.5))
         if line2:
             plt.legend([line2], ['gt'], loc=(0.75,0.7), fontsize=15)
         plt.tick_params(pad=0)

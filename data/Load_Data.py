@@ -28,8 +28,8 @@ from numpy import int32, result_type
 sys.path.append('./')
 import copy
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
-from PIL import Image, ImageOps
+from torchvision import transforms
+from PIL import Image
 import json
 import glob
 import random
@@ -37,15 +37,15 @@ import warnings
 import torchvision.transforms.functional as F
 from utils.utils import *
 from models.networks.libs.lane import Lane
-from scipy.interpolate import InterpolatedUnivariateSpline, UnivariateSpline
+from scipy.interpolate import UnivariateSpline
 import imgaug.augmenters as iaa
 from imgaug.augmenters import Resize
-from imgaug.augmentables.lines import LineString, LineStringsOnImage
+from imgaug.augmentables.lines import LineString
 warnings.simplefilter('ignore', np.RankWarning)
 matplotlib.use('Agg')
 
 
-class LaneDatasetv2(Dataset):
+class LaneDataset(Dataset):
     """
     Dataset with labeled lanes
         This implementation considers:
@@ -1380,25 +1380,25 @@ class LaneDatasetv2(Dataset):
         lane_z_std = np.sqrt(np.average(lane_z_all**2, weights=visibility_all_flat, axis=0))
 
         cache_file = {}
-        cache_file["label_image_path"] = label_image_path                               # replacable
-        cache_file["gt_laneline_pts_all_org"] = gt_laneline_pts_all_org                 # replacable
-        cache_file["gt_laneline_pts_all"] = gt_laneline_pts_all                         # replacable
-        cache_file["gt_centerline_pts_all"] = gt_centerline_pts_all                     # not used
-        cache_file["gt_cam_height_all"] = gt_cam_height_all                             # replacable
-        cache_file["gt_cam_pitch_all"] = gt_cam_pitch_all                               # replacable
-        cache_file["gt_laneline_ass_ids"] = gt_laneline_ass_ids                         # replacable
-        cache_file["gt_centerline_ass_ids"] = gt_centerline_ass_ids                     # not used
+        # cache_file["label_image_path"] = label_image_path                               # replacable
+        # cache_file["gt_laneline_pts_all_org"] = gt_laneline_pts_all_org                 # replacable
+        # cache_file["gt_laneline_pts_all"] = gt_laneline_pts_all                         # replacable
+        # cache_file["gt_centerline_pts_all"] = gt_centerline_pts_all                     # not used
+        # cache_file["gt_cam_height_all"] = gt_cam_height_all                             # replacable
+        # cache_file["gt_cam_pitch_all"] = gt_cam_pitch_all                               # replacable
+        # cache_file["gt_laneline_ass_ids"] = gt_laneline_ass_ids                         # replacable
+        # cache_file["gt_centerline_ass_ids"] = gt_centerline_ass_ids                     # not used
         cache_file["lane_x_off_std"] = lane_x_off_std                                   
         cache_file["lane_y_off_std"] = lane_y_off_std
         cache_file["lane_z_std"] = lane_z_std
-        cache_file["gt_laneline_visibility_all"] = gt_laneline_visibility_all           # replacable
-        cache_file["gt_centerline_visibility_all"] = gt_centerline_visibility_all       # not used
-        cache_file["gt_laneline_category_all_org"] = gt_laneline_category_all_org       # replacable
-        cache_file["gt_laneline_category_all"] = gt_laneline_category_all               # replacable
-        cache_file["gt_laneline_im_all"] = gt_laneline_im_all                           # not used
-        cache_file["gt_centerline_im_all"] = gt_centerline_im_all                       # not used
-        cache_file["cam_intrinsics_all"] = cam_intrinsics_all                           # replacable
-        cache_file["cam_extrinsics_all"] = cam_extrinsics_all                           # replacable
+        # cache_file["gt_laneline_visibility_all"] = gt_laneline_visibility_all           # replacable
+        # cache_file["gt_centerline_visibility_all"] = gt_centerline_visibility_all       # not used
+        # cache_file["gt_laneline_category_all_org"] = gt_laneline_category_all_org       # replacable
+        # cache_file["gt_laneline_category_all"] = gt_laneline_category_all               # replacable
+        # cache_file["gt_laneline_im_all"] = gt_laneline_im_all                           # not used
+        # cache_file["gt_centerline_im_all"] = gt_centerline_im_all                       # not used
+        # cache_file["cam_intrinsics_all"] = cam_intrinsics_all                           # replacable
+        # cache_file["cam_extrinsics_all"] = cam_extrinsics_all                           # replacable
         cache_file["anchor_origins"] = anchor_origins
         cache_file["anchor_angles"] = anchor_angles
         
@@ -1897,7 +1897,7 @@ def get_loader(transformed_dataset, args):
         return a batch sampler based ont the dataset
     """
 
-    # transformed_dataset = LaneDatasetv2(dataset_base_dir, json_file_path, args)
+    # transformed_dataset = LaneDataset(dataset_base_dir, json_file_path, args)
     sample_idx = range(transformed_dataset.n_samples)
 
     g = torch.Generator()

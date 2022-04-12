@@ -20,14 +20,13 @@ import os.path as ops
 
 def config(args):
     # 300 sequence
-    # args.dataset_name = 'waymo_300_v1.1'
-    # args.dataset_dir = '/mnt/lustre/share_data/simachonghao/waymo_1000/images/'
-    # args.data_dir = '/mnt/lustre/share_data/simachonghao/waymo_1000/lane3d_v1.2/'
+    # args.dataset_name = 'waymo'
+    # args.dataset_dir = '/mnt/disk01/openlane/images/'
+    # args.data_dir = '/mnt/disk01/openlane/lane3d_300/'
 
     # 1000 sequence
     args.dataset_name = 'waymo'
     args.dataset_dir = '/mnt/disk01/openlane/images/'
-    # args.data_dir = '/mnt/disk01/openlane/lane3d_v2.0/'
     args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
 
     if 'waymo' in args.dataset_name:
@@ -43,7 +42,6 @@ def config(args):
 
     # define the network model
     args.num_class = 2  # 1 background + n lane labels
-    args.pretrained_feat_model = 'pretrained/erfnet_model_sim3d.tar'
     # args.mod = 'debug'
     args.y_ref = 5  # new anchor prefer closer range gt assign
 
@@ -68,6 +66,9 @@ def config(args):
     args.cudnn = True
     args.port = 29666
 
+    # ddp init
+    args.use_slurm = False
+
     # attention
     args.position_embedding = 'learned'
     args.use_att = True
@@ -80,7 +81,7 @@ def config(args):
     args.use_fpn = False
 
     # data loader
-    args.nworkers = 3
+    args.nworkers = 7
 
     # grad clip
     args.clip_grad_norm = 35.0
@@ -134,9 +135,6 @@ def config(args):
     # memcache
     args.use_memcache = False
 
-    # ddp init
-    args.use_slurm = False
-
 
 def sim3d_config(args):
     # set dataset parameters
@@ -159,8 +157,6 @@ def sim3d_config(args):
         args.top_view_region = np.array([[-10, 85], [10, 85], [-10, 5], [10, 5]])
         args.anchor_y_steps = np.array([5, 20, 40, 60, 80, 100])
     """
-    # args.top_view_region = np.array([[-10, 83], [10, 83], [-10, 3], [10, 3]])
-    # args.anchor_y_steps = np.array([3, 5, 10, 20, 40, 60, 80, 100])
     args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
     args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
     args.num_y_steps = len(args.anchor_y_steps)

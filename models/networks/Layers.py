@@ -14,17 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-from torch._C import Value
 import torch.optim
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-import torchvision.models as models
 from utils.utils import *
-import copy
 from typing import Optional, List
-from torch import Tensor
-from .PE import build_position_encoding
 
 from models.ops.modules import MSDeformAttn, IdentityMSDeformAttn, DropoutMSDeformAttn
 

@@ -17,7 +17,6 @@
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
 import os
 import subprocess
 import numpy as np

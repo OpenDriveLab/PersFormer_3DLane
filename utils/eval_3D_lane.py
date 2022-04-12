@@ -36,17 +36,8 @@ Evaluation metrics includes:
 """
 
 import numpy as np
-import cv2
-import os
-import os.path as ops
-import copy
-import math
-import ujson as json
-from scipy.interpolate import interp1d
-import matplotlib
 from utils.utils import *
 from utils.MinCostFlow import SolveMinCostFlow
-from mpl_toolkits.mplot3d import Axes3D
 
 
 class LaneEval(object):

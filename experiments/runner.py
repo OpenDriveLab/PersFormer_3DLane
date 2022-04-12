@@ -17,7 +17,6 @@
 import torch
 import torch.optim
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import glob
 import time
@@ -27,7 +26,6 @@ from os import mkdir, write
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
-from config import persformer_openlane
 from data.Load_Data import *
 from models.PersFormer import PersFormer
 from models.networks import Loss_crit
@@ -37,9 +35,7 @@ from utils.utils import *
 
 # ddp related
 import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-import subprocess
 
 from .ddp import *
 
@@ -515,9 +511,9 @@ class Runner:
     def _get_train_dataset(self):
         args = self.args
         if 'waymo' in args.dataset_name:
-            train_dataset = LaneDatasetv2(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=True)
+            train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=True)
         else:
-            train_dataset = LaneDatasetv2(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
+            train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
         
         # train_dataset.normalize_lane_label()
         train_loader, train_sampler = get_loader(train_dataset, args)
@@ -529,11 +525,11 @@ class Runner:
         args = self.args
         if 'waymo' in args.dataset_name:
             if not args.evaluate_case:
-                valid_dataset = LaneDatasetv2(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
             else:
-                valid_dataset = LaneDatasetv2(args.dataset_dir, args.data_dir, args, seg_bev=True)
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir, args, seg_bev=True)
         else:
-            valid_dataset = LaneDatasetv2(args.dataset_dir, self.val_gt_file, args)
+            valid_dataset = LaneDataset(args.dataset_dir, self.val_gt_file, args)
 
         # assign std of valid dataset to be consistent with train dataset
         valid_dataset.set_x_off_std(self.train_dataset._x_off_std)

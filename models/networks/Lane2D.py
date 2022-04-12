@@ -17,8 +17,6 @@
 import torch.optim
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-import torchvision.models as models
 from utils.utils import *
 
 from nms import nms
