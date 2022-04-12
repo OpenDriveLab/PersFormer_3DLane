@@ -64,9 +64,9 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 ## Visualization
 Following are the visualization results of PersFormer on OpenLane dataset and Apollo dataset.
 - OpenLane visualization results
-![teaser](imgs/openlane_vis.jpg)
+![teaser](imgs/openlane_vis.png)
 - Apollo 3D Synthetic visualization results
-![teaser](imgs/apollo_vis.jpg)
+![teaser](imgs/apollo_vis.png)
 
 ## Citation
   Please use the following citation if you find our repo or our paper [PersFormer](https://arxiv.org/abs/2203.11089) useful:
