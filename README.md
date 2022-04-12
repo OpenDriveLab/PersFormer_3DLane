@@ -1,5 +1,5 @@
 # PersFormer
-![teaser](imgs/pipeline.png)
+![teaser](imgs/pipeline.svg)
 <!-- <img src="imgs/pipeline.png" alt="drawing" width="200"/> -->
 > **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**
 > Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan.
