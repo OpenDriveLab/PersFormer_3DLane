@@ -22,10 +22,18 @@ srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GP
 ``` 
 - We provide a pretrain model [here](https://drive.google.com/file/d/1FzrOn6Y9BifyBXUUVcDw9jYePAgKjTTB/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
 ```
+├── config/...
+├── data/...
+├── images
 ├── data_splits
-    └── waymo
-        └── PersFormer
-            └── model_best_epoch_40.pth.tar
+|   └── waymo
+|   |   └── PersFormer
+|   |   |   └── model_best_epoch_40.pth.tar
+├── experiments/...
+├── imgs/...
+├── models/...
+├── utils/...
+└── main_persformer.py
 ```
 And run the following code which specify the *EXPR_NAME*
 ```
