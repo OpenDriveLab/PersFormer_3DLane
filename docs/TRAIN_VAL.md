@@ -8,7 +8,7 @@ Other config details please see `utils/utils.py`.
 ```
 # using torch.distributed.launch to init
 python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE --nepochs=NUM_EPOCHS
-# using slurm to init
+# or using slurm to init
 srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE --nepochs=NUM_EPOCHS
 ```
 
@@ -17,7 +17,7 @@ srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GP
 ```
 # using torch.distributed.launch to init
 python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE
-# using slurm to init
+# or using slurm to init
 srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=EXPR_NAME --batch_size=BATCH_SIZE
 ``` 
 - We provide a pretrain model [here](https://drive.google.com/file/d/1FzrOn6Y9BifyBXUUVcDw9jYePAgKjTTB/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
@@ -39,7 +39,7 @@ And run the following code which specify the *EXPR_NAME*
 ```
 # using torch.distributed.launch to init
 python -m torch.distributed.launch --nproc_per_node NUM_GPUS main_persformer.py --mod=PersFormer --batch_size=BATCH_SIZE
-# using slurm to init
+# or using slurm to init
 srun -p PARTITION --job-name=PersFormer --mpi=pmi2 -n NUM_GPUS --gres=gpu:NUM_GPUS --ntasks-per-node=NUM_GPUS python main_persformer.py --mod=PersFormer --batch_size=BATCH_SIZE
 ```
 We provide our results on 4 3090 GPUs and `torch 1.8.1+cu111` as follow:
