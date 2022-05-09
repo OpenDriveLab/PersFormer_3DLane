@@ -16,6 +16,8 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from numpy import dtype
 from utils.utils import *
 from models.networks.feature_extractor import *
 from models.networks import Lane2D, Lane3D
@@ -23,7 +25,6 @@ from models.networks.libs.layers import *
 from models.networks.PE import PositionEmbeddingLearned
 from models.networks.Layers import EncoderLayer
 from models.networks.Unet_parts import Down, Up
-from models.networks.fpn import FPN
 
 # overall network
 class PersFormer(nn.Module):
@@ -46,13 +47,11 @@ class PersFormer(nn.Module):
         # Define network
         # backbone: feature_extractor
         self.encoder = self.get_encoder(args)
-        self.fpn = FPN(self.encoder.dimList, args.feature_channels, 4, add_extra_convs=False)
         self.neck = nn.Sequential(*make_one_layer(self.encoder.dimList[0], args.feature_channels, batch_norm=True),
                                   *make_one_layer(args.feature_channels, args.feature_channels, batch_norm=True))
-
-        # 2d detector
+        # 2d lane detector
         self.shared_encoder = Lane2D.FrontViewPathway(args.feature_channels, args.num_proj)
-        stride = 2  
+        stride = 2
         self.laneatt_head = Lane2D.LaneATTHead(stride * pow(2, args.num_proj - 1),
                                                args.feature_channels * pow(2, args.num_proj - 2), # no change in last proj
                                                args.im_anchor_origins,
@@ -62,7 +61,21 @@ class PersFormer(nn.Module):
                                                S=args.S,
                                                anchor_feat_channels=args.anchor_feat_channels,
                                                num_category=args.num_category)
-
+        # Perspective Transformer: get better bev feature
+        self.pers_tr = PerspectiveTransformer(args,
+                                              channels=args.feature_channels, # 128
+                                              bev_h=args.ipm_h,  # 208
+                                              bev_w=args.ipm_w,  # 128
+                                              uv_h=args.resize_h//stride,  # 180
+                                              uv_w=args.resize_w//stride,  # 240
+                                              M_inv=self.M_inv, 
+                                              num_att=self.num_att, 
+                                              num_proj=self.num_proj, 
+                                              nhead=args.nhead,
+                                              npoints=args.npoints)
+        # BEV feature extractor
+        self.bev_head = BEVHead(args, channels=args.feature_channels)
+        # 3d lane detector
         self.lane_out = Lane3D.LanePredictionHead(args.feature_channels * pow(2, self.num_proj - 2),
                                                   self.num_lane_type,
                                                   self.num_y_steps,
@@ -72,189 +85,8 @@ class PersFormer(nn.Module):
                                                   args.no_3d,
                                                   args.batch_norm,
                                                   args.no_cuda)
-
-        '''
-            ATTENTION RELATED
-            frontview_features_0 size: torch.Size([4, 128, 180, 240])
-            frontview_features_1 size: torch.Size([4, 256, 90, 120])
-            frontview_features_2 size: torch.Size([4, 512, 45, 60])
-            frontview_features_3 size: torch.Size([4, 512, 22, 30])
-            x_0 size: torch.Size([4, 128, 208, 128])
-            x_1 size: torch.Size([4, 128, 104, 64])
-            x_2 size: torch.Size([4, 256, 52, 32])
-            x_3 size: torch.Size([4, 256, 26, 16])
-        '''
-        # attn num channel
-        self.uv_feat_c_1 = 128
-        self.uv_feat_c_2 = self.uv_feat_c_1 * 2
-        self.uv_feat_c_3 = self.uv_feat_c_2 * 2
-        self.uv_feat_c_4 = self.uv_feat_c_2 * 2
-        # self.uv_feat_len_4 = 22*30
-        self.uv_h_1 = 180
-        self.uv_w_1 = 240
-        self.uv_feat_len_1 = self.uv_h_1 * self.uv_w_1
-
-        self.uv_h_2 = self.uv_h_1 // 2
-        self.uv_w_2 = self.uv_w_1 // 2
-        self.uv_feat_len_2 = self.uv_h_2 * self.uv_w_2
-
-        self.uv_h_3 = self.uv_h_2 // 2
-        self.uv_w_3 = self.uv_w_2 // 2
-        self.uv_feat_len_3 = self.uv_h_3 * self.uv_w_3
-
-        self.uv_h_4 = self.uv_h_3 // 2
-        self.uv_w_4 = self.uv_w_3 // 2
-        self.uv_feat_len_4 = self.uv_h_4 * self.uv_w_4
-        # self.bev_feat_len_4 = 26*16
-
-        self.bev_h_1 = 208
-        self.bev_w_1 = 128
-        self.bev_feat_len_1 = self.bev_h_1 * self.bev_w_1
-        
-        self.bev_h_2 = self.bev_h_1 // 2
-        self.bev_w_2 = self.bev_w_1 // 2
-        self.bev_feat_len_2 = self.bev_h_2 * self.bev_w_2
-
-        self.bev_h_3 = self.bev_h_2 // 2
-        self.bev_w_3 = self.bev_w_2 // 2
-        self.bev_feat_len_3 = self.bev_h_3 * self.bev_w_3
-
-        self.bev_h_4 = self.bev_h_3 // 2
-        self.bev_w_4 = self.bev_w_3 // 2
-        self.bev_feat_len_4 = self.bev_h_4 * self.bev_w_4
-
-        self.dim_ffn_4 = self.uv_feat_c_4 * 2
-        self.dim_ffn_3 = self.uv_feat_c_3 * 2
-        self.dim_ffn_2 = self.uv_feat_c_2 * 2
-        self.dim_ffn_1 = self.uv_feat_c_1 * 2
-
-        self.nhead = args.nhead
-
-        # learnable query
-        query_embed_1 = nn.Embedding(self.bev_feat_len_1, self.uv_feat_c_1)
-        query_embed_2 = nn.Embedding(self.bev_feat_len_2, self.uv_feat_c_2)
-        query_embed_3 = nn.Embedding(self.bev_feat_len_3, self.uv_feat_c_3)
-        query_embed_4 = nn.Embedding(self.bev_feat_len_4, self.uv_feat_c_4)
-
-        self.query_embeds = nn.ModuleList()
-        self.query_embeds.append(query_embed_1)
-        self.query_embeds.append(query_embed_2)
-        self.query_embeds.append(query_embed_3)
-        self.query_embeds.append(query_embed_4)
-
-        self.npoints = args.npoints
-
-        # Encoder layer version
-        el1 = EncoderLayer(d_model=self.uv_feat_c_1, dim_ff=self.uv_feat_c_1*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el2 = EncoderLayer(d_model=self.uv_feat_c_2, dim_ff=self.uv_feat_c_2*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el3 = EncoderLayer(d_model=self.uv_feat_c_3, dim_ff=self.uv_feat_c_3*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el4 = EncoderLayer(d_model=self.uv_feat_c_4, dim_ff=self.uv_feat_c_4*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el1_1 = EncoderLayer(d_model=self.uv_feat_c_1, dim_ff=self.uv_feat_c_1*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el2_1 = EncoderLayer(d_model=self.uv_feat_c_2, dim_ff=self.uv_feat_c_2*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el3_1 = EncoderLayer(d_model=self.uv_feat_c_3, dim_ff=self.uv_feat_c_3*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el4_1 = EncoderLayer(d_model=self.uv_feat_c_4, dim_ff=self.uv_feat_c_4*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el1_2 = EncoderLayer(d_model=self.uv_feat_c_1, dim_ff=self.uv_feat_c_1*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el2_2 = EncoderLayer(d_model=self.uv_feat_c_2, dim_ff=self.uv_feat_c_2*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el3_2 = EncoderLayer(d_model=self.uv_feat_c_3, dim_ff=self.uv_feat_c_3*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-        el4_2 = EncoderLayer(d_model=self.uv_feat_c_4, dim_ff=self.uv_feat_c_4*2, num_levels=1, num_points=self.npoints, num_heads=self.nhead)
-
-        self.el = nn.ModuleList()
-        self.el.append(el1)
-        self.el.append(el2)
-        self.el.append(el3)
-        self.el.append(el4)
-        self.el.append(el1_1)
-        self.el.append(el2_1)
-        self.el.append(el3_1)
-        self.el.append(el4_1)
-        self.el.append(el1_2)
-        self.el.append(el2_2)
-        self.el.append(el3_2)
-        self.el.append(el4_2)
-
-        pe1 = PositionEmbeddingLearned(h=self.bev_h_1, w=self.bev_w_1, num_pos_feats=self.uv_feat_c_1 // 2)
-        pe2 = PositionEmbeddingLearned(h=self.bev_h_2, w=self.bev_w_2, num_pos_feats=self.uv_feat_c_2 // 2)
-        pe3 = PositionEmbeddingLearned(h=self.bev_h_3, w=self.bev_w_3, num_pos_feats=self.uv_feat_c_3 // 2)
-        pe4 = PositionEmbeddingLearned(h=self.bev_h_4, w=self.bev_w_4, num_pos_feats=self.uv_feat_c_4 // 2)
-        self.pe = nn.ModuleList()
-        self.pe.append(pe1)
-        self.pe.append(pe2)
-        self.pe.append(pe3)
-        self.pe.append(pe4)
-
-        # 2d uniform sampling
-        self.ref_2d_1 = self.get_reference_points(H=self.bev_h_1, W=self.bev_w_1, dim='2d', bs=1)
-        self.ref_2d_2 = self.get_reference_points(H=self.bev_h_2, W=self.bev_w_2, dim='2d', bs=1)
-        self.ref_2d_3 = self.get_reference_points(H=self.bev_h_3, W=self.bev_w_3, dim='2d', bs=1)
-        self.ref_2d_4 = self.get_reference_points(H=self.bev_h_4, W=self.bev_w_4, dim='2d', bs=1)
-
-        size_top1 = torch.Size([self.bev_h_1, self.bev_w_1])
-        self.project_layer1 = Lane3D.RefPntsNoGradGenerator(size_top1, self.M_inv, args.no_cuda)
-        size_top2 = torch.Size([self.bev_h_2, self.bev_w_2])
-        self.project_layer2 = Lane3D.RefPntsNoGradGenerator(size_top2, self.M_inv, args.no_cuda)
-        size_top3 = torch.Size([self.bev_h_3, self.bev_w_3])
-        self.project_layer3 = Lane3D.RefPntsNoGradGenerator(size_top3, self.M_inv, args.no_cuda)
-        size_top4 = torch.Size([self.bev_h_4, self.bev_w_4])
-        self.project_layer4 = Lane3D.RefPntsNoGradGenerator(size_top4, self.M_inv, args.no_cuda)
-
-        # input_spatial_shapes & input_level_start_index
-        self.input_spatial_shapes_1 = torch.as_tensor([(self.uv_h_1, self.uv_w_1)], dtype=torch.long)
-        self.input_level_start_index_1 = torch.as_tensor([0.0,], dtype=torch.long)
-
-        self.input_spatial_shapes_2 = torch.as_tensor([(self.uv_h_2, self.uv_w_2)], dtype=torch.long)
-        self.input_level_start_index_2 = torch.as_tensor([0.0,], dtype=torch.long)
-
-        self.input_spatial_shapes_3 = torch.as_tensor([(self.uv_h_3, self.uv_w_3)], dtype=torch.long)
-        self.input_level_start_index_3 = torch.as_tensor([0.0,], dtype=torch.long)
-
-        self.input_spatial_shapes_4 = torch.as_tensor([(self.uv_h_4, self.uv_w_4)], dtype=torch.long)
-        self.input_level_start_index_4 = torch.as_tensor([0.0,], dtype=torch.long)
-
-        # dim reduce & size reduce
-        self.dim_size_rts_1 = Lane3D.SingleTopViewPathway(128)   # 128 to 128
-        self.dim_size_rts_2 = Lane3D.SingleTopViewPathway(256)   # 256 to 256
-        self.dim_size_rts_3 = Lane3D.EasyDown2TopViewPathway(512)   # 512 to 256
-
-        self.dim_rts = nn.ModuleList()
-        self.dim_rts.append(nn.Sequential(*make_one_layer(256,
-                                                        128,
-                                                        kernel_size=1,
-                                                        padding=0,
-                                                        batch_norm=args.batch_norm)))
-        self.dim_rts.append(nn.Sequential(*make_one_layer(512,
-                                                        256,
-                                                        kernel_size=1,
-                                                        padding=0,
-                                                        batch_norm=args.batch_norm)))
-        self.dim_rts.append(nn.Sequential(*make_one_layer(512,
-                                                        256,
-                                                        kernel_size=1,
-                                                        padding=0,
-                                                        batch_norm=args.batch_norm)))
-
-
-        # single att-style ipm
-        self.use_proj_layer = 0
-
-        '''
-            projs_0 size: torch.Size([4, 128, 208, 128])
-            projs_1 size: torch.Size([4, 256, 104, 64])
-            projs_2 size: torch.Size([4, 512, 52, 32])
-            projs_3 size: torch.Size([4, 512, 26, 16])
-        '''
-        # segmentation feature extractor
-        # v3 first bev into unet
-        self.down1 = Down(128, 256)
-        self.down2 = Down(256, 512)
-        factor = 2
-        self.down3 = Down(512, 1024//factor)
-        self.up1 = Up(1024, 256)
-        self.up2 = Up(512, 128)
-        self.up3 = Up(256, 128)
-
         # segmentation head
-        self.segment_head = nn.Conv2d(128, 1, kernel_size=1)
-
+        self.segment_head = SegmentHead(channels=args.feature_channels)
         # uncertainty loss weight
         self.uncertainty_loss = nn.Parameter(torch.tensor([args._3d_vis_loss_weight,
                                                             args._3d_prob_loss_weight,
@@ -263,154 +95,55 @@ class PersFormer(nn.Module):
                                                             args._2d_prob_loss_weight,
                                                             args._2d_reg_loss_weight,
                                                             args._seg_loss_weight]), requires_grad=True)
+        self._initialize_weights(args)
 
-    def forward(self, input, _M_inv = None, eval=False, use_fpn=False, use_att=True, args=None):
+    def forward(self, input, _M_inv = None):
         out_featList = self.encoder(input)
-        if not use_fpn:
-            neck_out = self.neck(out_featList[0])
-            frontview_features = self.shared_encoder(neck_out)
-            # print("max feat number in neck_out: ", torch.max(neck_out))
-        else:
-            fpn_outs = self.fpn(out_featList)
-            frontview_features = self.shared_encoder(fpn_outs[0])
-
-        frontview_final_feat = frontview_features[-1]
-
+        neck_out = self.neck(out_featList[0])
+        frontview_features = self.shared_encoder(neck_out)
         '''
             frontview_features_0 size: torch.Size([4, 128, 180, 240])
             frontview_features_1 size: torch.Size([4, 256, 90, 120])
             frontview_features_2 size: torch.Size([4, 512, 45, 60])
             frontview_features_3 size: torch.Size([4, 512, 22, 30])
         '''
+        frontview_final_feat = frontview_features[-1]
 
-        if eval is False:
-            laneatt_proposals_list = self.laneatt_head(frontview_final_feat, nms_thres=20., eval=eval)
-        else:
-            # TODO: conf_threshold -> no prediction -> error in loss
-            laneatt_proposals_list = self.laneatt_head(frontview_final_feat, conf_threshold=0.5,
-                                                       nms_thres=36., nms_topk=self.max_lanes, eval=eval)
+        laneatt_proposals_list = self.laneatt_head(frontview_final_feat)
 
+        projs = self.pers_tr(input, frontview_features, _M_inv)
+        '''
+            projs_0 size: torch.Size([4, 128, 208, 128])
+            projs_1 size: torch.Size([4, 256, 104, 64])
+            projs_2 size: torch.Size([4, 512, 52, 32])
+            projs_3 size: torch.Size([4, 512, 26, 16])
+        '''
+
+        bev_feat = self.bev_head(projs)
+        '''
+            bev_feat size: torch.Size([4, 512, 26, 16])
+        '''
+
+        out = self.lane_out(bev_feat)
 
         cam_height = self.cam_height.to(input.device)
         cam_pitch = self.cam_pitch.to(input.device)
 
-        projs = []
-        # deform att multi scale
-        for i in range(4):
-            input_spatial_shapes = getattr(self, "input_spatial_shapes_{}".format(i + 1)).to(input.device)
-            input_level_start_index = getattr(self, "input_level_start_index_{}".format(i + 1)).to(input.device)
-            bs, c, h, w = frontview_features[i].shape
-            bev_h = getattr(self, "bev_h_{}".format(i + 1))
-            bev_w = getattr(self, "bev_w_{}".format(i + 1))
-
-            src = frontview_features[i].flatten(2).permute(0, 2, 1)
-            query_embed = self.query_embeds[i].weight.unsqueeze(0).repeat(bs, 1, 1)
-
-            # reference points generated by ipm grid
-            project_layer = getattr(self, "project_layer{}".format(i + 1))
-            ref_pnts = project_layer(_M_inv).unsqueeze(-2)
-            # ref_pnts = getattr(self, "reference_point_{}".format(i + 1)).unsqueeze(0).repeat(bs, 1, 1, 1).to(input.device)
-
-            # encoder layers
-            bev_mask = torch.zeros((bs, bev_h, bev_w), device=query_embed.device).to(query_embed.dtype)
-            bev_pos = self.pe[i](bev_mask).to(query_embed.dtype)
-            bev_pos = bev_pos.flatten(2).permute(0, 2, 1)
-            ref_2d = getattr(self, 'ref_2d_{}'.format(i + 1)).repeat(bs, 1, 1, 1).to(input.device)
-            # first layer
-            query_embed = self.el[i](query=query_embed, value=src, bev_pos=bev_pos, 
-                                        ref_2d = ref_2d, ref_3d=ref_pnts,
-                                        bev_h=bev_h, bev_w=bev_w, 
-                                        spatial_shapes=input_spatial_shapes,
-                                        level_start_index=input_level_start_index)
-            # second layer
-            query_embed = self.el[i+4](query=query_embed, value=src, bev_pos=bev_pos, 
-                                        ref_2d = ref_2d, ref_3d=ref_pnts,
-                                        bev_h=bev_h, bev_w=bev_w, 
-                                        spatial_shapes=input_spatial_shapes,
-                                        level_start_index=input_level_start_index)
-            x = self.el[i+8](query=query_embed, value=src, bev_pos=bev_pos, 
-                                ref_2d = ref_2d, ref_3d=ref_pnts,
-                                bev_h=bev_h, bev_w=bev_w, 
-                                spatial_shapes=input_spatial_shapes,
-                                level_start_index=input_level_start_index)
-
-            x = x.permute(0, 2, 1).view(bs, c, bev_h, bev_w).contiguous()
-            projs.append(x)
-
-        proj_feat_1 = self.dim_size_rts_1(projs[0])
-        rts_proj_feat_1 = self.dim_rts[0](projs[1])
-        proj_feat_2 = self.dim_size_rts_2(torch.cat((proj_feat_1, rts_proj_feat_1), 1))
-        rts_proj_feat_2 = self.dim_rts[1](projs[2])
-        proj_feat_3 = self.dim_size_rts_3(torch.cat((proj_feat_2, rts_proj_feat_2), 1))
-        rts_proj_feat_3 = self.dim_rts[2](projs[3])
-        x = torch.cat((proj_feat_3, rts_proj_feat_3), 1)
-
-        
-        '''
-            x_0 size: torch.Size([4, 128, 208, 128])
-            x_1 size: torch.Size([4, 128, 104, 64])
-            x_2 size: torch.Size([4, 256, 52, 32])
-            x_3 size: torch.Size([4, 256, 26, 16])
-        '''
-
-        out = self.lane_out(x)
-
-        # segment head v3
-        x1 = self.down1(projs[0])
-        x2 = self.down2(x1)
-        x3 = self.down3(x2)
-        x_out = self.up1(x3, x2)
-        x_out = self.up2(x_out, x1)
-        x_out = self.up3(x_out, projs[0])
-        pred_seg_bev_map = self.segment_head(x_out)
+        pred_seg_bev_map = self.segment_head(projs[0])
 
         # seperate loss weight
         uncertainty_loss = torch.tensor(1.0).to(input.device) * self.uncertainty_loss.to(input.device)
 
         return laneatt_proposals_list, out, cam_height, cam_pitch, pred_seg_bev_map, uncertainty_loss
 
-    @staticmethod
-    def get_reference_points(H, W, Z=8, D=4, dim='3d', bs=1, device='cuda', dtype=torch.long):
-        """Get the reference points used in decoder.
-        Args:
-            H, W spatial shape of bev
-            device (obj:`device`): The device where
-                reference_points should be.
-        Returns:
-            Tensor: reference points used in decoder, has \
-                shape (bs, num_keys, num_levels, 2).
-        """
-
-        # 2d to 3d reference points, need grid from M_inv
-        if dim == '3d':
-            raise Exception("get reference poitns 3d not supported")
-            zs = torch.linspace(0.5, Z - 0.5, D, dtype=dtype,
-                                device=device).view(-1, 1, 1).expand(-1, H, W) / Z
-
-            # zs = torch.arange(1, Z, 2, dtype=dtype,
-            #                  device=device).view(-1, 1, 1).expand(-1, H, W)/Z
-
-            xs = torch.linspace(0.5, W - 0.5, W, dtype=dtype,
-                                device=device).view(1, 1, W).expand(D, H, W) / W
-            ys = torch.linspace(0.5, H - 0.5, H, dtype=dtype,
-                                device=device).view(1, H, 1).expand(D, H, W) / H
-            ref_3d = torch.stack((xs, ys, zs), -1)
-            ref_3d = ref_3d.permute(0, 3, 1, 2).flatten(2).permute(0, 2, 1)
-
-            ref_3d = ref_3d[None].repeat(bs, 1, 1, 1)
-            return ref_3d
-        elif dim == '2d':
-            ref_y, ref_x = torch.meshgrid(
-                torch.linspace(
-                    0.5, H - 0.5, H, dtype=dtype, device=device),
-                torch.linspace(
-                    0.5, W - 0.5, W, dtype=dtype, device=device)
-            )
-            ref_y = ref_y.reshape(-1)[None] / H  # ?
-            ref_x = ref_x.reshape(-1)[None] / W  # ?
-            ref_2d = torch.stack((ref_x, ref_y), -1)
-            ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
-            return ref_2d   
+    def _initialize_weights(self, args):
+        define_init_weights(self.neck, args.weight_init)
+        define_init_weights(self.shared_encoder, args.weight_init)
+        define_init_weights(self.laneatt_head, args.weight_init)
+        define_init_weights(self.pers_tr, args.weight_init)
+        define_init_weights(self.bev_head, args.weight_init)
+        define_init_weights(self.lane_out, args.weight_init)
+        define_init_weights(self.segment_head, args.weight_init)
 
     def get_transform_matrices(self, args):
         # define homographic transformation between image and ipm
@@ -471,6 +204,199 @@ class PersFormer(nn.Module):
         elif args.encoder == 'ResNet101':
             return deepFeatureExtractor_ResNet101(lv6=False)
         elif 'EfficientNet' in args.encoder:
-            return deepFeatureExtractor_EfficientNet(args.encoder, lv6=False, lv5=True, lv4=True, lv3=True)
+            return deepFeatureExtractor_EfficientNet(args.encoder, lv6=False, lv5=False, lv4=False, lv3=False)
         else:
             raise Exception("encoder model in args is not supported")
+
+
+class PerspectiveTransformer(nn.Module):
+    def __init__(self, args, channels, bev_h, bev_w, uv_h, uv_w, M_inv, num_att, num_proj, nhead, npoints):
+        super(PerspectiveTransformer, self).__init__()
+        self.bev_h = bev_h
+        self.bev_w = bev_w
+        self.uv_h = uv_h
+        self.uv_w = uv_w
+        self.M_inv = M_inv
+        self.num_att = num_att
+        self.num_proj = num_proj
+        self.nhead = nhead
+        self.npoints = npoints
+
+        self.query_embeds = nn.ModuleList()
+        self.pe = nn.ModuleList()
+        self.el = nn.ModuleList()
+        self.project_layers = nn.ModuleList()
+        self.ref_2d = []
+        self.input_spatial_shapes = []
+        self.input_level_start_index = []
+
+        uv_feat_c = channels
+        for i in range(self.num_proj):
+            if i > 0:
+                bev_h = bev_h // 2
+                bev_w = bev_w // 2
+                uv_h = uv_h // 2
+                uv_w = uv_w // 2
+                if i != self.num_proj-1:
+                    uv_feat_c = uv_feat_c * 2
+
+            bev_feat_len = bev_h * bev_w
+            query_embed = nn.Embedding(bev_feat_len, uv_feat_c)
+            self.query_embeds.append(query_embed)
+            position_embed = PositionEmbeddingLearned(bev_h, bev_w, num_pos_feats=uv_feat_c//2)
+            self.pe.append(position_embed)
+
+            ref_point = self.get_reference_points(H=bev_h, W=bev_w, dim='2d', bs=1)
+            self.ref_2d.append(ref_point)
+
+            size_top = torch.Size([bev_h, bev_w])
+            project_layer = Lane3D.RefPntsNoGradGenerator(size_top, self.M_inv, args.no_cuda)
+            self.project_layers.append(project_layer)
+
+            spatial_shape = torch.as_tensor([(uv_h, uv_w)], dtype=torch.long)
+            self.input_spatial_shapes.append(spatial_shape)
+
+            level_start_index = torch.as_tensor([0.0,], dtype=torch.long)
+            self.input_level_start_index.append(level_start_index)
+
+            for j in range(self.num_att):
+                encoder_layers = EncoderLayer(d_model=uv_feat_c, dim_ff=uv_feat_c*2, num_levels=1, 
+                                              num_points=self.npoints, num_heads=self.nhead)
+                self.el.append(encoder_layers)
+
+    def forward(self, input, frontview_features, _M_inv = None):
+        projs = []
+        for i in range(self.num_proj):
+            if i == 0:
+                bev_h = self.bev_h
+                bev_w = self.bev_w
+            else:
+                bev_h = bev_h // 2
+                bev_w = bev_w // 2
+            bs, c, h, w = frontview_features[i].shape
+            query_embed = self.query_embeds[i].weight.unsqueeze(0).repeat(bs, 1, 1)
+            src = frontview_features[i].flatten(2).permute(0, 2, 1)
+            bev_mask = torch.zeros((bs, bev_h, bev_w), device=query_embed.device).to(query_embed.dtype)
+            bev_pos = self.pe[i](bev_mask).to(query_embed.dtype)
+            bev_pos = bev_pos.flatten(2).permute(0, 2, 1)
+            ref_2d = self.ref_2d[i].repeat(bs, 1, 1, 1).to(input.device)
+            ref_pnts = self.project_layers[i](_M_inv).unsqueeze(-2)
+            input_spatial_shapes = self.input_spatial_shapes[i].to(input.device)
+            input_level_start_index = self.input_level_start_index[i].to(input.device)
+            for j in range(self.num_att):
+                query_embed = self.el[i*self.num_att+j](query=query_embed, value=src, bev_pos=bev_pos, 
+                                                        ref_2d = ref_2d, ref_3d=ref_pnts,
+                                                        bev_h=bev_h, bev_w=bev_w, 
+                                                        spatial_shapes=input_spatial_shapes,
+                                                        level_start_index=input_level_start_index)
+            query_embed = query_embed.permute(0, 2, 1).view(bs, c, bev_h, bev_w).contiguous()
+            projs.append(query_embed)
+        return projs
+
+    @staticmethod
+    def get_reference_points(H, W, Z=8, D=4, dim='3d', bs=1, device='cuda', dtype=torch.long):
+        """Get the reference points used in decoder.
+        Args:
+            H, W spatial shape of bev
+            device (obj:`device`): The device where
+                reference_points should be.
+        Returns:
+            Tensor: reference points used in decoder, has \
+                shape (bs, num_keys, num_levels, 2).
+        """
+        # 2d to 3d reference points, need grid from M_inv
+        if dim == '3d':
+            raise Exception("get reference poitns 3d not supported")
+            zs = torch.linspace(0.5, Z - 0.5, D, dtype=dtype,
+                                device=device).view(-1, 1, 1).expand(-1, H, W) / Z
+            xs = torch.linspace(0.5, W - 0.5, W, dtype=dtype,
+                                device=device).view(1, 1, W).expand(D, H, W) / W
+            ys = torch.linspace(0.5, H - 0.5, H, dtype=dtype,
+                                device=device).view(1, H, 1).expand(D, H, W) / H
+            ref_3d = torch.stack((xs, ys, zs), -1)
+            ref_3d = ref_3d.permute(0, 3, 1, 2).flatten(2).permute(0, 2, 1)
+
+            ref_3d = ref_3d[None].repeat(bs, 1, 1, 1)
+            return ref_3d
+        elif dim == '2d':
+            ref_y, ref_x = torch.meshgrid(
+                torch.linspace(
+                    0.5, H - 0.5, H, dtype=dtype, device=device),
+                torch.linspace(
+                    0.5, W - 0.5, W, dtype=dtype, device=device)
+            )
+            ref_y = ref_y.reshape(-1)[None] / H  # ?
+            ref_x = ref_x.reshape(-1)[None] / W  # ?
+            ref_2d = torch.stack((ref_x, ref_y), -1)
+            ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
+            return ref_2d   
+
+
+class BEVHead(nn.Module):
+    def __init__(self, args, channels=128):
+        super(BEVHead, self).__init__()
+        self.size_reduce_layer_1 = Lane3D.SingleTopViewPathway(channels)            # 128 to 128
+        self.size_reduce_layer_2 = Lane3D.SingleTopViewPathway(channels*2)          # 256 to 256
+        self.size_dim_reduce_layer_3 = Lane3D.EasyDown2TopViewPathway(channels*4)   # 512 to 256
+
+        self.dim_reduce_layers = nn.ModuleList()
+        self.dim_reduce_layers.append(nn.Sequential(*make_one_layer(channels*2,     # 256
+                                                        channels,                   # 128
+                                                        kernel_size=1,
+                                                        padding=0,
+                                                        batch_norm=args.batch_norm)))
+        self.dim_reduce_layers.append(nn.Sequential(*make_one_layer(channels*4,     # 512
+                                                        channels*2,                 # 256
+                                                        kernel_size=1,
+                                                        padding=0,
+                                                        batch_norm=args.batch_norm)))
+        self.dim_reduce_layers.append(nn.Sequential(*make_one_layer(channels*4,     # 512
+                                                        channels*2,                 # 256
+                                                        kernel_size=1,
+                                                        padding=0,
+                                                        batch_norm=args.batch_norm)))
+
+    def forward(self, projs):
+        '''
+            projs_0 size: torch.Size([4, 128, 208, 128])
+            projs_1 size: torch.Size([4, 256, 104, 64])
+            projs_2 size: torch.Size([4, 512, 52, 32])
+            projs_3 size: torch.Size([4, 512, 26, 16])
+
+            bev_feat_1 size: torch.Size([4, 128, 104, 64])
+            bev_feat_2 size: torch.Size([4, 256, 52, 32])
+            bev_feat_3 size: torch.Size([4, 256, 26, 16])
+
+            bev_feat   size: torch.Size([4, 512, 26, 16])
+        '''
+        bev_feat_1 = self.size_reduce_layer_1(projs[0])          # 128 -> 128
+        rts_proj_feat_1 = self.dim_reduce_layers[0](projs[1])    # 256 -> 128
+        bev_feat_2 = self.size_reduce_layer_2(torch.cat((bev_feat_1, rts_proj_feat_1), 1))     # 128+128 -> 256
+        rts_proj_feat_2 = self.dim_reduce_layers[1](projs[2])    # 512 -> 256
+        bev_feat_3 = self.size_dim_reduce_layer_3(torch.cat((bev_feat_2, rts_proj_feat_2), 1)) # 256+256 -> 256
+        rts_proj_feat_3 = self.dim_reduce_layers[2](projs[3])    # 512 -> 256
+        bev_feat = torch.cat((bev_feat_3, rts_proj_feat_3), 1)   # 256+256=512
+        return bev_feat
+
+
+class SegmentHead(nn.Module):
+    def __init__(self, channels=128):
+        super(SegmentHead, self).__init__()
+        self.down1 = Down(channels, channels*2)     # Down(128, 256)
+        self.down2 = Down(channels*2, channels*4)   # Down(256, 512)
+        self.down3 = Down(channels*4, channels*4)   # Down(512, 512)
+        self.up1 = Up(channels*8, channels*2)       # Up(1024, 256)
+        self.up2 = Up(channels*4, channels)         # Up(512, 128)
+        self.up3 = Up(channels*2, channels)         # Up(256, 128)
+        self.segment_head = nn.Conv2d(channels, 1, kernel_size=1)
+
+    def forward(self, input):
+        x1 = self.down1(input)                      # 128 -> 256
+        x2 = self.down2(x1)                         # 256 -> 512
+        x3 = self.down3(x2)                         # 512 -> 512
+        x_out = self.up1(x3, x2)                    # 512+512 -> 256
+        x_out = self.up2(x_out, x1)                 # 256+256 -> 128
+        x_out = self.up3(x_out, input)              # 128+128 ->128
+        pred_seg_bev_map = self.segment_head(x_out) # 128 -> 1
+
+        return pred_seg_bev_map

@@ -14,33 +14,28 @@
 # limitations under the License.
 # ==============================================================================
 
-import sys
-import pickle
-import os
-from pathlib import Path
-# memcache related
-import numpy as np
-import cv2
-
 import re
-
-from numpy import int32, result_type
-sys.path.append('./')
+import os
+import sys
 import copy
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
-from PIL import Image
 import json
 import glob
 import random
+import pickle
 import warnings
+from pathlib import Path
+import numpy as np
+from numpy import int32#, result_type
+import cv2
+from PIL import Image
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 import torchvision.transforms.functional as F
+from torchvision.transforms import InterpolationMode
 from utils.utils import *
 from models.networks.libs.lane import Lane
 from scipy.interpolate import UnivariateSpline
-import imgaug.augmenters as iaa
-from imgaug.augmenters import Resize
-from imgaug.augmentables.lines import LineString
+sys.path.append('./')
 warnings.simplefilter('ignore', np.RankWarning)
 matplotlib.use('Agg')
 
@@ -245,9 +240,6 @@ class LaneDataset(Dataset):
             args.fmap_mapping_interp_weight = np.concatenate((fmap_mapping_left_10_interp_weight, fmap_mapping_right_10_interp_weight,
                                                             fmap_mapping_left_20_interp_weight, fmap_mapping_right_20_interp_weight,
                                                             fmap_mapping_left_40_interp_weight, fmap_mapping_right_40_interp_weight), axis=1)
-
-        transformations = iaa.Sequential([Resize({'height': args.resize_h, 'width': args.resize_w})])
-        self.transform = transformations
 
         if self.no_centerline:
             self.num_types = 1
@@ -574,10 +566,9 @@ class LaneDataset(Dataset):
             with open(img_name, 'rb') as f:
                 image = (Image.open(f).convert('RGB'))
 
-
         # image preprocess with crop and resize
         image = F.crop(image, self.h_crop, 0, self.h_org-self.h_crop, self.w_org)
-        image = F.resize(image, size=(self.h_net, self.w_net), interpolation=Image.BILINEAR)
+        image = F.resize(image, size=(self.h_net, self.w_net), interpolation=InterpolationMode.BILINEAR)
 
         gt_anchor = np.zeros([self.anchor_num, self.num_types, self.anchor_dim], dtype=np.float32)
         gt_anchor[:, :, self.anchor_dim - self.num_category] = 1.0
@@ -692,8 +683,6 @@ class LaneDataset(Dataset):
         Args: idx (int): Index in list to load image
         """
         return self.WIP__getitem__(idx)
-
-
 
 
     def init_dataset_3D(self, dataset_base_dir, json_file_path):
@@ -1664,20 +1653,6 @@ class LaneDataset(Dataset):
         else:
             return self.H_g2im, self.P_g2im, self.H_crop, self.H_im2ipm
 
-    def lane_to_linestrings(self, lanes):
-        lines = []
-        for lane in lanes:
-            lines.append(LineString(lane))
-
-        return lines
-
-    def linestrings_to_lanes(self, lines):
-        lanes = []
-        for line in lines:
-            lanes.append(line.coords)
-
-        return lanes
-    
     def filter_lane(self, lane):
         assert lane[-1][1] <= lane[0][1]
         filtered_lane = []

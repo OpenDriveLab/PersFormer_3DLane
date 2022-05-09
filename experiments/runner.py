@@ -36,7 +36,6 @@ from utils.utils import *
 # ddp related
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-
 from .ddp import *
 
 
@@ -64,7 +63,6 @@ class Runner:
         if args.proc_id == 0:
             print("Loading Dataset ...")
         self.val_gt_file = ops.join(args.save_path, 'test.json')
-        # self.valid_set_labels = self._get_valid_set_labels()
         self.train_dataset, self.train_loader, self.train_sampler = self._get_train_dataset()
         self.valid_dataset, self.valid_loader, self.valid_sampler = self._get_valid_dataset()
 
@@ -182,7 +180,7 @@ class Runner:
                 # Run model
                 optimizer.zero_grad()
                 # Inference model
-                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv, use_att=args.use_att, args=args)
+                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
 
                 # 3D loss
                 loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
@@ -200,7 +198,7 @@ class Runner:
                     loss.fill_(0.0)
                 # Clip gradients (usefull for instabilities or mistakes in ground truth)
                 if args.clip_grad_norm != 0:
-                    nn.utils.clip_grad_norm(model.parameters(), args.clip_grad_norm)
+                    nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
 
                 # Setup backward pass
                 loss.backward()
@@ -222,6 +220,9 @@ class Runner:
                         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                         'Loss {loss.val:.8f} ({loss.avg:.8f})'.format(epoch+1, i+1, len(train_loader), 
                                             batch_time=batch_time, data_time=data_time, loss=loss_list[0]))
+
+            # Adjust learning rate
+            scheduler.step()
 
             # loss terms need to be all reduced, eval_stats need to be all gather
             # Do them all in validate
@@ -259,9 +260,6 @@ class Runner:
                 print("===> Last best {}-loss was {:.8f} in epoch {}".format(self.crit_string, lowest_loss, best_epoch))
                 print("===> Last best F1 was {:.8f} in epoch {}".format(best_val_f1, best_f1_epoch))
 
-                # Adjust learning rate
-                scheduler.step()
-
                 self.save_checkpoint({
                     'arch': args.mod,
                     'state_dict': model.module.state_dict(),
@@ -274,6 +272,9 @@ class Runner:
                     'best_val_f1': best_val_f1,
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict()}, to_save, epoch+1, args.save_path)
+
+            dist.barrier()
+            torch.cuda.empty_cache()
 
         # at the end of training
         if not args.no_tb and args.proc_id == 0:
@@ -323,8 +324,19 @@ class Runner:
 
                 M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
                 # Inference model
-                # laneatt_proposals_list, output_net, pred_hcam, pred_pitch = model(input, eval=True)
-                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv, args=args)
+                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
+
+                ## compute FPS
+                # iterations = 1000
+                # torch.cuda.synchronize()
+                # start = time.time()
+                # for _ in range(iterations):
+                #     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
+                # torch.cuda.synchronize()
+                # end = time.time()
+                # FPS = iterations / (end - start)
+                # print("FPS: ", FPS)
+                # break
 
                 # 3D loss
                 loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
@@ -448,6 +460,7 @@ class Runner:
             gather_output = [None for _ in range(args.world_size)]
             # all_gather all eval_stats and calculate mean
             dist.all_gather_object(gather_output, eval_stats)
+            dist.barrier()
             r_lane = np.sum([eval_stats_sub[8] for eval_stats_sub in gather_output])
             p_lane = np.sum([eval_stats_sub[9] for eval_stats_sub in gather_output])
             c_lane = np.sum([eval_stats_sub[10] for eval_stats_sub in gather_output])
@@ -468,23 +481,11 @@ class Runner:
             eval_stats[6] = np.sum([eval_stats_sub[6] for eval_stats_sub in gather_output]) / args.world_size
             eval_stats[7] = np.sum([eval_stats_sub[7] for eval_stats_sub in gather_output]) / args.world_size
 
-            if args.proc_id == 0 and args.evaluate:
-                print("===> Average {}-loss on validation set is {:.8f}".format(self.crit_string, loss_list[0].avg))
-                print("===> Evaluation laneline F-measure: {:.8f}".format(eval_stats[0]))
-                print("===> Evaluation laneline Recall: {:.8f}".format(eval_stats[1]))
-                print("===> Evaluation laneline Precision: {:.8f}".format(eval_stats[2]))
-                print("===> Evaluation laneline Category Accuracy: {:.8f}".format(eval_stats[3]))
-                print("===> Evaluation laneline x error (close): {:.8f} m".format(eval_stats[4]))
-                print("===> Evaluation laneline x error (far): {:.8f} m".format(eval_stats[5]))
-                print("===> Evaluation laneline z error (close): {:.8f} m".format(eval_stats[6]))
-                print("===> Evaluation laneline z error (far): {:.8f} m".format(eval_stats[7]))
-
             return loss_list, eval_stats
 
     def eval(self):
         args = self.args
         model = PersFormer(args)
-        define_init_weights(model, args.weight_init)
         if args.sync_bn:
             if args.proc_id == 0:
                 print("Convert model with Sync BatchNorm")
@@ -506,7 +507,16 @@ class Runner:
         if args.distributed:
             model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
         loss_list, eval_stats = self.validate(model, vis=True)
-
+        if args.proc_id == 0:
+            print("===> Average {}-loss on validation set is {:.8f}".format(self.crit_string, loss_list[0].avg))
+            print("===> Evaluation laneline F-measure: {:.8f}".format(eval_stats[0]))
+            print("===> Evaluation laneline Recall: {:.8f}".format(eval_stats[1]))
+            print("===> Evaluation laneline Precision: {:.8f}".format(eval_stats[2]))
+            print("===> Evaluation laneline Category Accuracy: {:.8f}".format(eval_stats[3]))
+            print("===> Evaluation laneline x error (close): {:.8f} m".format(eval_stats[4]))
+            print("===> Evaluation laneline x error (far): {:.8f} m".format(eval_stats[5]))
+            print("===> Evaluation laneline z error (close): {:.8f} m".format(eval_stats[6]))
+            print("===> Evaluation laneline z error (far): {:.8f} m".format(eval_stats[7]))
 
     def _get_train_dataset(self):
         args = self.args
@@ -540,40 +550,10 @@ class Runner:
 
         return valid_dataset, valid_loader, valid_sampler
 
-    def _get_valid_set_labels(self):
-        args = self.args
-        val_gt_file = self.val_gt_file
-        write_file = True
-        if os.path.isfile(val_gt_file):
-            write_file = False
-        # extract valid set labels for evaluation later
-        valid_set_labels = []
-        if 'openlane' in args.dataset_name:
-            if args.proc_id == 0 and write_file:
-                with open(val_gt_file, 'w') as val_file:
-                    label_list = glob.glob(args.data_dir + 'validation/' + '**/*.json', recursive=True)
-                    for label_file in label_list:
-                        with open(label_file, 'r') as file:
-                            file_lines = [line for line in file]
-                            val_file.write(file_lines[0])
-                            val_file.write('\n')
-                            valid_set_labels.append(json.loads(file_lines[0]))
-            else:
-                label_list = glob.glob(args.data_dir + 'validation/' + '**/*.json', recursive=True)
-                for label_file in label_list:
-                    with open(label_file, 'r') as file:
-                        file_lines = [line for line in file]
-                        valid_set_labels.append(json.loads(file_lines[0]))
-        else:
-            valid_set_labels = [json.loads(line) for line in open(val_gt_file).readlines()]
-        
-        return valid_set_labels
-
     def _get_model_ddp(self):
         args = self.args
         # Define network
         model = PersFormer(args)
-        define_init_weights(model, args.weight_init)
 
         if args.sync_bn:
             if args.proc_id == 0:
@@ -601,6 +581,14 @@ class Runner:
         if args.resume:
             model, best_epoch, lowest_loss, best_f1_epoch, best_val_f1, \
                 optim_saved_state, schedule_saved_state = self.resume_model(args, model)
+        elif args.pretrained and args.proc_id == 0:
+            path = 'models/pretrain/model_pretrain.pth.tar'
+            if os.path.isfile(path):
+                checkpoint = torch.load(path)
+                model.load_state_dict(checkpoint['state_dict'])
+                print("Use pretrained model in {} to start training".format(path))
+            else:
+                raise Exception("No pretrained model found in {}".format(path))
 
         dist.barrier()
         # DDP setting
@@ -622,7 +610,7 @@ class Runner:
         if schedule_saved_state is not None:
             print("proc_id-{} load scheduler state".format(args.proc_id))
             scheduler.load_state_dict(schedule_saved_state)
-        
+
         return model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
 
     def resume_model(self, args, model):
@@ -672,7 +660,7 @@ class Runner:
         #             'checkpoint_model_epoch_{}.pth.tar'.format(epoch-1))
         #     if os.path.exists(prev_checkpoint_filename):
         #         os.remove(prev_checkpoint_filename)
-    
+
     def compute_loss(self, args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict):
         if args.learnable_weight_on:
             loss = 0
@@ -706,39 +694,39 @@ class Runner:
             else:
                 loss = loss_3d + args.loss_att_weight * loss_att + 0.0 * loss_seg + 0.0 * uncertainty_loss[0:6].sum()
         return loss
-    
+
     def reduce_all_loss(self, args, loss_list, loss, loss_3d_dict, loss_att_dict, num):
-        reduced_loss = loss
+        reduced_loss = loss.data
         reduced_loss_all = reduce_tensors(reduced_loss, world_size=args.world_size)
         losses = loss_list[0]
         losses.update(to_python_float(reduced_loss_all), num)
 
-        reduced_vis_loss = loss_3d_dict['vis_loss']
+        reduced_vis_loss = loss_3d_dict['vis_loss'].data
         reduced_vis_loss = reduce_tensors(reduced_vis_loss, world_size=args.world_size)
         losses_3d_vis = loss_list[1]
         losses_3d_vis.update(to_python_float(reduced_vis_loss), num)
 
-        reduced_prob_loss = loss_3d_dict['prob_loss']
+        reduced_prob_loss = loss_3d_dict['prob_loss'].data
         reduced_prob_loss = reduce_tensors(reduced_prob_loss, world_size=args.world_size)
         losses_3d_prob = loss_list[2]
         losses_3d_prob.update(to_python_float(reduced_prob_loss), num)
 
-        reduced_reg_loss = loss_3d_dict['reg_loss']
+        reduced_reg_loss = loss_3d_dict['reg_loss'].data
         reduced_reg_loss = reduce_tensors(reduced_reg_loss, world_size=args.world_size)
         losses_3d_reg = loss_list[3]
         losses_3d_reg.update(to_python_float(reduced_reg_loss), num)
 
-        reduce_2d_vis_loss = loss_att_dict['vis_loss']
+        reduce_2d_vis_loss = loss_att_dict['vis_loss'].data
         reduce_2d_vis_loss = reduce_tensors(reduce_2d_vis_loss, world_size=args.world_size)
         losses_2d_vis = loss_list[4]
         losses_2d_vis.update(to_python_float(reduce_2d_vis_loss), num)
 
-        reduced_2d_cls_loss = loss_att_dict['cls_loss']
+        reduced_2d_cls_loss = loss_att_dict['cls_loss'].data
         reduced_2d_cls_loss = reduce_tensors(reduced_2d_cls_loss, world_size=args.world_size)
         losses_2d_cls = loss_list[5]
         losses_2d_cls.update(to_python_float(reduced_2d_cls_loss), num)
 
-        reduced_2d_reg_loss = loss_att_dict['reg_loss']
+        reduced_2d_reg_loss = loss_att_dict['reg_loss'].data
         reduced_2d_reg_loss = reduce_tensors(reduced_2d_reg_loss, world_size=args.world_size)
         losses_2d_reg = loss_list[6]
         losses_2d_reg.update(to_python_float(reduced_2d_reg_loss), num)

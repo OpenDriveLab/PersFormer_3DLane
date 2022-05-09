@@ -37,11 +37,11 @@ plt.rcParams['figure.figsize'] = (35, 30)
 
 
 def define_args():
-    parser = argparse.ArgumentParser(description='Lane_detection_all_objectives')
+    parser = argparse.ArgumentParser(description='PersFormer_3DLane_Detection')
     # Paths settings
-    parser.add_argument('--dataset_name', type=str, help='the dataset name to be used in saving model names')
-    parser.add_argument('--data_dir', type=str, help='The path saving train.json and val.json files')
-    parser.add_argument('--dataset_dir', type=str, help='The path saving actual data')
+    parser.add_argument('--dataset_name', type=str, help='the dataset name')
+    parser.add_argument('--data_dir', type=str, help='The path of dataset json files (annotations)')
+    parser.add_argument('--dataset_dir', type=str, help='The path of dataset image files (images)')
     parser.add_argument('--save_path', type=str, default='data_splits/', help='directory to save output')
     parser.add_argument('--use_memcache', type=str2bool, nargs='?', const=True, default=True, help='if use memcache')
     # Dataset settings
@@ -54,9 +54,9 @@ def define_args():
     parser.add_argument('--no_3d', action='store_true', help='if a dataset include laneline 3D attributes')
     parser.add_argument('--no_centerline', action='store_true', help='if a dataset include centerline')
     parser.add_argument('--num_category', type=int, default=2, help='number of lane category, including background')
-    # 3DLaneNet settings
-    parser.add_argument('--mod', type=str, default='3DLaneNet', help='model to train')
-    parser.add_argument("--pretrained", type=str2bool, nargs='?', const=True, default=True, help="use pretrained vgg model")
+    # PersFormer settings
+    parser.add_argument('--mod', type=str, default='PersFormer', help='model to train')
+    parser.add_argument("--pretrained", type=str2bool, nargs='?', const=True, default=True, help="use pretrained model to start training")
     parser.add_argument("--batch_norm", type=str2bool, nargs='?', const=True, default=True, help="apply batch norm")
     parser.add_argument("--pred_cam", type=str2bool, nargs='?', const=True, default=False, help="use network to predict camera online?")
     parser.add_argument('--ipm_h', type=int, default=208, help='height of inverse projective map (IPM)')
@@ -69,7 +69,9 @@ def define_args():
                                                                           'ResNext101/VGG19/DenseNet161/InceptionV3/MobileNetV2/ResNet101/EfficientNet-Bx')
     parser.add_argument('--feature_channels', type=int, default=128, help='number of channels after encoder')
     parser.add_argument('--num_proj', type=int, default=4, help='number of projection layers')
+    parser.add_argument('--num_att', type=int, default=3, help='number of attention encoding layers')
     parser.add_argument('--use_proj', type=str2bool, nargs='?', const=True, default=True, help='proj features in 2D pathway')
+    parser.add_argument('--use_fpn', type=str2bool, nargs='?', const=True, default=False, help='use FPN features')
     parser.add_argument('--use_default_anchor', type=str2bool, nargs='?', const=True, default=False, help='use default anchors in 2D and 3D')
     parser.add_argument('--nms_thres_3d', type=float, default=1.0, help='nms threshold to filter detections in BEV, unit: meter')
     parser.add_argument('--new_match', type=str2bool, nargs='?', const=True, default=False, help='Allow multiple anchors to match the same GT during 3D data loading')
@@ -90,17 +92,14 @@ def define_args():
     parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning rate')
     parser.add_argument('--no_cuda', action='store_true', help='if gpu available')
     parser.add_argument('--nworkers', type=int, default=0, help='num of threads')
-    parser.add_argument('--no_dropout', action='store_true', help='no dropout in network')
-    parser.add_argument('--pretrain_epochs', type=int, default=20, help='Number of epochs to perform segmentation pretraining')
+    parser.add_argument('--seg_start_epoch', type=int, default=1, help='Number of epochs to perform segmentation pretraining')
     parser.add_argument('--channels_in', type=int, default=3, help='num channels of input image')
-    parser.add_argument('--flip_on', action='store_true', help='Random flip input images on?')
     parser.add_argument('--test_mode', action='store_true', help='prevents loading latest saved model')
     parser.add_argument('--start_epoch', type=int, default=0, help='prevents loading latest saved model')
     parser.add_argument('--evaluate', action='store_true', help='only perform evaluation')
     parser.add_argument('--resume', type=str, default='', help='resume latest saved run')
     parser.add_argument('--vgg_mean', type=float, default=[0.485, 0.456, 0.406], help='Mean of rgb used in pretrained model on ImageNet')
     parser.add_argument('--vgg_std', type=float, default=[0.229, 0.224, 0.225], help='Std of rgb used in pretrained model on ImageNet')
-    
     # Optimizer settings
     parser.add_argument('--optimizer', type=str, default='adamw', help='adam/adamw/sgd/rmsprop')
     parser.add_argument('--weight_init', type=str, default='normal', help='normal, xavier, kaiming, orhtogonal weights initialisation')
@@ -120,28 +119,14 @@ def define_args():
     parser.add_argument("--cudnn", type=str2bool, nargs='?', const=True, default=True, help="cudnn optimization active")
     # Tensorboard settings
     parser.add_argument("--no_tb", type=str2bool, nargs='?', const=True, default=False, help="Use tensorboard logging by tensorflow")
-    # Print settings
+    # Print and Save settings
     parser.add_argument('--print_freq', type=int, default=500, help='padding')
     parser.add_argument('--save_freq', type=int, default=500, help='padding')
-    # Skip batch
-    parser.add_argument('--list', type=int, nargs='+', default=[954, 2789], help='Images you want to skip')
-    # GPU parrallel process setting
-    parser.add_argument('--gpu_num', type=str, default = "0,1,2,3", help='force available gpu index')
+    # DDP setting
     parser.add_argument('--distributed', action='store_true')
     parser.add_argument("--local_rank", type=int)
     parser.add_argument('--gpu', type=int, default = 0)
     parser.add_argument('--world_size', type=int, default = 1)
-    parser.add_argument('--num_threads',               type=int,   help='number of threads to use for data loading', default=1)
-    parser.add_argument('--rank',                      type=int,   help='node rank for distributed training', default=0)
-    parser.add_argument('--dist_url',                  type=str,   help='url used to set up distributed training', default='tcp://127.0.0.1:1234')
-    parser.add_argument('--dist_backend',              type=str,   help='distributed backend', default='nccl')
-    parser.add_argument('--multiprocessing_distributed',           help='Use multi-processing distributed training to launch '
-                                                                        'N processes per node, which has N GPUs. This is the '
-                                                                        'fastest way to use PyTorch for either single node or '
-                                                                        'multi node data parallel training', action='store_true',)
-
-    # case test
-    parser.add_argument('--case_name', type=str, default=None, help='case name to be tested')
     return parser
 
 

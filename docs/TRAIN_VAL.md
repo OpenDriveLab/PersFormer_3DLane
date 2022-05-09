@@ -23,7 +23,7 @@ python -m torch.distributed.launch --nproc_per_node $NUM_GPUS$ main_persformer.p
 # or using slurm to init
 srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$NUM_GPUS$ --ntasks-per-node=$NUM_GPUS$ python main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$
 ``` 
-- We provide a pretrained model [here](https://drive.google.com/file/d/1FzrOn6Y9BifyBXUUVcDw9jYePAgKjTTB/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
+- We provide a pretrained model [here](https://drive.google.com/file/d/1QE5Vt6jJl1uyduEi5tj7_0iN6-_Mpqbp/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
 ```
 ├── config/...
 ├── data/...
@@ -69,4 +69,18 @@ laneline x error (close)  0.32198945 m
 laneline x error (far)  0.77837964 m
 laneline z error (close)  0.21318495 m
 laneline z error (far)  0.68114834 m
+```
+
+For the newest result(updated on 2022-5-9):
+```
+===> Average loss_gflat-loss on training set is 7.14011097
+===> Average loss_gflat-loss on validation set is 18.50835419
+===> Evaluation laneline F-measure: 0.49003957
+===> Evaluation laneline Recall: 0.45885230
+===> Evaluation laneline Precision: 0.52577662
+===> Evaluation laneline Category Accuracy: 0.89028467
+===> Evaluation laneline x error (close): 0.32408248 m
+===> Evaluation laneline x error (far): 0.77043876 m
+===> Evaluation laneline z error (close): 0.21541502 m
+===> Evaluation laneline z error (far): 0.67630386 m
 ```

@@ -26,7 +26,9 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 - [License](#license)  
   
 ## Changelog
-**2022-4-12**: We released the v1.0 code for PersFormer.  
+**2022-5-9:** We updated the model code and pretrained checkpoint which achieved **0.49** F1-score result of 3D lane detection on OpenLane Dataset.  
+We compared our method on [ONCES_3DLanes](https://github.com/once-3dlanes/once_3dlanes_benchmark) Dataset, where PersFormer also **outperforms** other methods.  
+2022-4-12: We released the v1.0 code for PersFormer.  
 
 ## Get Started
   
@@ -50,7 +52,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 | 3DLaneNet  | 40.2 | 37.7 | 43.2 | 43.0 | 39.3 | 29.3 | 36.5 |  
 |**PersFormer**|**47.8**|**42.4**|**52.8**|**48.7**|**46.0**|**37.9**|**44.6**|  
   
-  - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is LaneATT.
+  - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is **LaneATT**.
   
 | Method     | All  | Up&<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |
 | :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|
@@ -60,6 +62,16 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 | CondLaneNet-S | 52.3 | 55.3 | 57.5 | 45.8 | 46.6 | 48.4 | 45.5 | 
 | CondLaneNet-M | 55.0 | 58.5 | 59.4 | 49.2 | 48.6 | 50.7 | 47.8 | 
 |**CondLaneNet-L**|**59.1**|**62.1**|**62.9**|**54.7**|**51.0**|**55.7**|**52.3**| 
+  
+  - 3D Lane Detection Results in [ONCE_3DLanes](https://github.com/once-3dlanes/once_3dlanes_benchmark).
+  
+| Method     | F1(%)  | Precision(%) | Recall(%) | CD error(m) |  
+| :----:     |:----:|:----:|:----:|:----:|  
+| 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 |  
+| GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  
+| SALAD      | 64.07 | 75.90 | 55.42 | 0.098 |  
+|**PersFormer**|**74.33**|**80.30**|**69.18**|**0.074**|  
+  
 
 ## Visualization
 Following are the visualization results of PersFormer on OpenLane dataset and Apollo dataset.
