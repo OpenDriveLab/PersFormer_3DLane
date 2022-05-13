@@ -69,7 +69,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 | :----:     |:----:|:----:|:----:|:----:|  
 | 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 |  
 | GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  
-| SALAD      | 64.07 | 75.90 | 55.42 | 0.098 |  
+| SALAD ([paper](https://arxiv.org/pdf/2205.00301.pdf) of ONCE 3DLanes )     | 64.07 | 75.90 | 55.42 | 0.098 |  
 |**PersFormer**|**74.33**|**80.30**|**69.18**|**0.074**|  
   
 
