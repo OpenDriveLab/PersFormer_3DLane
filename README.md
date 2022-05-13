@@ -26,7 +26,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 - [License](#license)  
   
 ## Changelog
-**2022-5-9:** We updated the model code and pretrained checkpoint which achieved **0.49** F1-score result of 3D lane detection on [OpenLane](https://github.com/OpenPerceptionX/OpenLane) Dataset.  
+**2022-5-9:** We updated the model code and pretrained [checkpoint](https://drive.google.com/file/d/1QE5Vt6jJl1uyduEi5tj7_0iN6-_Mpqbp/view?usp=sharing) which achieved **0.49** F1-score result of 3D lane detection on [OpenLane](https://github.com/OpenPerceptionX/OpenLane) Dataset.  
 2022-5-9: We compared our method on [ONCES_3DLanes](https://github.com/once-3dlanes/once_3dlanes_benchmark) Dataset, where PersFormer also **outperforms** other methods.  
 2022-4-12: We released the v1.0 code for PersFormer.  
 
