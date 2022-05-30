@@ -23,7 +23,7 @@ python -m torch.distributed.launch --nproc_per_node $NUM_GPUS$ main_persformer.p
 # or using slurm to init
 srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$NUM_GPUS$ --ntasks-per-node=$NUM_GPUS$ python main_persformer.py --mod=$EXPR_NAME$ --batch_size=$BATCH_SIZE$
 ``` 
-- We provide a pretrained model [here](https://drive.google.com/file/d/1QE5Vt6jJl1uyduEi5tj7_0iN6-_Mpqbp/view?usp=sharing). You could download the model here and setup an experiment folder in the following hierarchy.
+- You could setup an experiment folder in the following hierarchy.
 ```
 ├── config/...
 ├── data/...
@@ -31,7 +31,7 @@ srun -p $PARTITION$ --job-name=PersFormer --mpi=pmi2 -n $NUM_GPUS$ --gres=gpu:$N
 ├── data_splits
 |   └── openlane
 |       └── PersFormer
-|           └── model_best_epoch_40.pth.tar
+|           └── model_best_epoch.pth.tar
 ├── experiments/...
 ├── imgs/...
 ├── models/...
