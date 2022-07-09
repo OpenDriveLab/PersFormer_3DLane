@@ -1,12 +1,12 @@
-# PersFormer
+# PersFormer: a New Baseline for 3D Laneline Detection
 ![pipeline](imgs/pipeline.svg)  
 
 > **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**  
-> Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan.
->  
-> <sup>∗</sup> equal contributions.  
-> <sup>†</sup> corresponding authors           
-> [arXiV 2203.11089](https://arxiv.org/abs/2203.11089)
+> Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan. <sup>∗</sup> equal contributions.  <sup>†</sup> corresponding authors 
+> 
+> - Paper: [arXiV 2203.11089](https://arxiv.org/abs/2203.11089), ECCV 2022 **Oral** Presentation (2.7% acceptance rate)  
+> - Third-party In-depth [Blog on Persformer](https://patrick-llgc.github.io/Learning-Deep-Learning/paper_notes/persformer.html) (recommended) 
+> - Our blog | Slides | Presentation video
 
 
 ## Introduction
