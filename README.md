@@ -4,12 +4,15 @@
 > **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**  
 > Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan. <sup>∗</sup> equal contributions.  <sup>†</sup> corresponding authors 
 > 
-> - Paper: [arXiV 2203.11089](https://arxiv.org/abs/2203.11089), ECCV 2022 **Oral** Presentation (2.7% acceptance rate)  
+> - Paper: [arXiv 2203.11089](https://arxiv.org/abs/2203.11089), ECCV 2022 **Oral** Presentation (2.7% acceptance rate)  
 > - Third-party In-depth [Blog on Persformer](https://patrick-llgc.github.io/Learning-Deep-Learning/paper_notes/persformer.html) (recommended) 
 > - Our blog | Slides | Presentation video
 
 
 ## Introduction
+
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/persformer-3d-lane-detection-via-perspective-1/3d-lane-detection-on-openlane)](https://paperswithcode.com/sota/3d-lane-detection-on-openlane?p=persformer-3d-lane-detection-via-perspective-1)
+
 This repository is the PyTorch implementation for **PersFormer**.  
 
 PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-based spatial feature transformation module. Our model generates BEV features by attending to related front-view local regions with camera parameters as a reference. It adopts a unified 2D/3D anchor design and an auxiliary task to detect 2D/3D lanes simultaneously, enhancing the feature consistency and sharing the benefits of multi-task learning.
@@ -82,16 +85,17 @@ Following are the visualization results of PersFormer on OpenLane dataset and Ap
 
 ## Citation
   Please use the following citation if you find our repo or our paper [PersFormer](https://arxiv.org/abs/2203.11089) useful:
-
-    @article{chen2022persformer,
+```bibtex
+    @inproceedings{chen2022persformer,
       title={PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark},
       author={Chen, Li and Sima, Chonghao and Li, Yang and Zheng, Zehan and Xu, Jiajie and Geng, Xiangwei and Li, Hongyang and He, Conghui and Shi, Jianping and Qiao, Yu and Yan, Junchi},
-      journal={arXiv preprint arXiv:2203.11089},
+      booktitle={European Conference on Computer Vision (ECCV)},
       year={2022}
     }  
+```
 
 ## Acknowledgements
-  We would like to acknowledge the great support from SenseBee labelling team at SenseTime Research, and the fruitful discussions and comments for this project from Zhiqi Li, Yuenan Hou, Yu Liu. We thank for the code implementation from [Gen-LaneNet](https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection), [LaneATT](https://github.com/lucastabelini/LaneATT) and [Deformable DETR](https://github.com/fundamentalvision/Deformable-DETR). 
+  We would like to acknowledge the great support from SenseBee labelling team at SenseTime Research, constructive suggestion from Zihan Ding at BUAA, and the fruitful discussions and comments for this project from Zhiqi Li, Yuenan Hou, Yu Liu, Jing Shao, Jifeng Dai. We thank for the code implementation from [Gen-LaneNet](https://github.com/yuliangguo/Pytorch_Generalized_3D_Lane_Detection), [LaneATT](https://github.com/lucastabelini/LaneATT) and [Deformable DETR](https://github.com/fundamentalvision/Deformable-DETR). 
 
 
 ## License
