@@ -50,9 +50,9 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   
 | Method     | All  | Up &<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |  
 | :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|  
-| GenLaneNet | 29.7 | 24.2 | 31.1 | 26.4 | 17.5 | 19.7 | 27.4 |  
-| 3DLaneNet  | 40.2 | 37.7 | 43.2 | 43.0 | 39.3 | 29.3 | 36.5 |  
-|**PersFormer**|**47.8**|**42.4**|**52.8**|**48.7**|**46.0**|**37.9**|**44.6**|  
+| GenLaneNet | 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |  
+| 3DLaneNet  | 44.1 | 40.8 | 46.5 | 47.5 | 41.5 | 32.1 | 41.7 |  
+|**PersFormer**|**50.5**|**42.4**|**55.6**|**48.6**|**46.6**|**40.0**|**50.7**|  
   
   - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is **LaneATT**.
   
