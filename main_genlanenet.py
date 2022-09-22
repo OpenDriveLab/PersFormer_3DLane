@@ -15,7 +15,7 @@
 # ==============================================================================
 
 import os
-from config import persformer_openlane, persformer_once
+from config import genlanenet_openlane
 from utils.utils import *
 from experiments.ddp import *
 from experiments.runner import *
@@ -25,13 +25,13 @@ def main():
     parser = define_args() # args in utils.py
     args = parser.parse_args()
     # specify dataset and model config
-    # persformer_once.config(args)
-    persformer_openlane.config(args)
+    genlanenet_openlane.config(args)
+    # persformer_openlane.config(args)
     # initialize distributed data parallel set
     ddp_init(args)
     # define runner to begin training or evaluation
     runner = Runner(args)
-    # args.evaluate = True
+    args.evaluate = True
     if not args.evaluate:
         runner.train()
     else:

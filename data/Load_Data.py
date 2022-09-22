@@ -252,6 +252,8 @@ class LaneDataset(Dataset):
         else:
             if 'no_visibility' in args.mod:
                 self.anchor_dim = 2 * args.num_y_steps + args.num_category
+            if args.model_name == 'GenLaneNet':
+                self.anchor_dim = 3 * args.num_y_steps + 1
             else:
                 # self.anchor_dim = 3 * args.num_y_steps + 1
                 self.anchor_dim = 3 * self.num_y_steps + args.num_category
@@ -268,6 +270,14 @@ class LaneDataset(Dataset):
                 self._z_std, \
                 self._im_anchor_origins, \
                 self._im_anchor_angles = self.init_dataset_openlane_beta(dataset_base_dir, json_file_path)
+            args.im_anchor_origins = self._im_anchor_origins
+            args.im_anchor_angles = self._im_anchor_angles
+        elif 'once' in self.dataset_name:
+            self._x_off_std, \
+                self._y_off_std, \
+                self._z_std, \
+                self._im_anchor_origins, \
+                self._im_anchor_angles = self.init_dataset_once_beta(dataset_base_dir, json_file_path)
             args.im_anchor_origins = self._im_anchor_origins
             args.im_anchor_angles = self._im_anchor_angles
         else:  # assume loading apollo sim 3D lane
@@ -313,6 +323,195 @@ class LaneDataset(Dataset):
         if self.use_memcache:
             from petrel_client.client import Client
             self._client = Client("~/petreloss.conf")
+
+    def preprocess_data_from_json_once(self, idx_json_file):
+        _label_image_path = None
+        _label_cam_height = None
+        _label_cam_pitch = None
+        cam_extrinsics = None
+        cam_intrinsics = None
+        _label_laneline = None
+        _label_laneline_org = None
+        _gt_laneline_visibility = None
+        _gt_laneline_category = None
+        _gt_laneline_category_org = None
+        _laneline_ass_id = None
+
+        if 'train' in idx_json_file:
+            image_path = idx_json_file.replace('train', 'data').replace('.json', '.jpg')
+        elif 'val' in idx_json_file:
+            image_path = idx_json_file.replace('val', 'data').replace('.json', '.jpg')
+        elif 'test' in idx_json_file:
+            image_path = idx_json_file.replace('test', 'data').replace('.json', '.jpg')
+        else:
+            raise("train/val/test not in the json path:", idx_json_file)
+
+        assert ops.exists(image_path), '{:s} not exist'.format(image_path)
+        _label_image_path = image_path
+
+        with open(idx_json_file, 'r') as file:
+            file_lines = [line for line in file]
+            if len(file_lines) != 0:
+                info_dict = json.loads(file_lines[0])
+            else:
+                print('Empty label_file:', idx_json_file)
+                return
+
+            if not self.fix_cam:
+                cam_pitch = 0.5/180*np.pi
+                cam_height = 1.5
+                cam_extrinsics = np.array([[np.cos(cam_pitch), 0, -np.sin(cam_pitch), 0],
+                                            [0, 1, 0, 0],
+                                            [np.sin(cam_pitch), 0,  np.cos(cam_pitch), cam_height],
+                                            [0, 0, 0, 1]], dtype=float)
+                R_vg = np.array([[0, 1, 0],
+                                    [-1, 0, 0],
+                                    [0, 0, 1]], dtype=float)
+                R_gc = np.array([[1, 0, 0],
+                                    [0, 0, 1],
+                                    [0, -1, 0]], dtype=float)
+                cam_extrinsics[:3, :3] = np.matmul(np.matmul(
+                                            np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
+                                                R_vg), R_gc)
+                cam_extrinsics[0:2, 3] = 0.0
+
+                # gt_cam_height = info_dict['cam_height']
+                gt_cam_height = cam_extrinsics[2, 3] #TODO:check the height
+                # gt_cam_height = 2.0
+                gt_cam_pitch = 0
+
+                if 'calibration' in info_dict:
+                    cam_intrinsics = info_dict['calibration']
+                    cam_intrinsics = np.array(cam_intrinsics)
+                    cam_intrinsics = cam_intrinsics[:, :3]
+                else:
+                    cam_intrinsics = self.K
+
+            _label_cam_height = gt_cam_height
+            _label_cam_pitch = gt_cam_pitch
+
+            gt_lanes_packed = info_dict['lanes']
+            gt_lane_pts, gt_lane_visibility, gt_laneline_category = [], [], []
+            for i, gt_lane_packed in enumerate(gt_lanes_packed):
+                # A GT lane can be either 2D or 3D
+                # if a GT lane is 3D, the height is intact from 3D GT, so keep it intact here too
+                lane = np.array(gt_lane_packed).T
+                # lane[2,:]=lane[2,:]/100.0 #TODO: check the unit of z
+
+                # Coordinate convertion for openlane_300 data
+                lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
+                # cam_representation = np.linalg.inv(
+                #                         np.array([[0, 0, 1, 0],
+                #                                     [-1, 0, 0, 0],
+                #                                     [0, -1, 0, 0],
+                #                                     [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to openlane camera
+                # lane = np.matmul(cam_extrinsics, np.matmul(cam_representation, lane))
+                lane = np.matmul(cam_extrinsics, lane)
+
+                lane = lane[0:3, :].T
+                lane = lane[lane[:,1].argsort()] #TODO:make y mono increase
+                # lane = np.array(gt_lane_packed)
+                gt_lane_pts.append(lane)
+                gt_lane_visibility.append(1.0)
+                gt_laneline_category.append(1)
+
+        # _label_laneline_org = copy.deepcopy(gt_lane_pts)
+        _gt_laneline_category_org = copy.deepcopy(np.array(gt_laneline_category))
+
+        if not self.fix_cam:
+            cam_K = cam_intrinsics
+            if 'openlane' in self.dataset_name or 'once' in self.dataset_name:
+                cam_E = cam_extrinsics
+                P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
+                H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
+            else:
+                gt_cam_height = _label_cam_height
+                gt_cam_pitch = _label_cam_pitch
+                P_g2im = projection_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+                H_g2im = homograpthy_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+            H_im2g = np.linalg.inv(H_g2im)
+        else:
+            P_g2im = self.P_g2im
+            H_im2g = self.H_im2g
+        P_g2gflat = np.matmul(H_im2g, P_g2im)
+
+        gt_lanes = gt_lane_pts
+        gt_visibility = gt_lane_visibility
+        gt_category = gt_laneline_category
+
+        # prune gt lanes by visibility labels
+        gt_lanes = [prune_3d_lane_by_visibility(gt_lane, gt_visibility[k]).squeeze(0) for k, gt_lane in enumerate(gt_lanes)]
+        _label_laneline_org = copy.deepcopy(gt_lanes)
+
+        # prune out-of-range points are necessary before transformation
+        gt_lanes = [prune_3d_lane_by_range(gt_lane, 3*self.x_min, 3*self.x_max) for gt_lane in gt_lanes]
+        gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
+
+        # convert 3d lanes to flat ground space
+        self.convert_lanes_3d_to_gflat(gt_lanes, P_g2gflat)
+
+        gt_anchors = []
+        ass_ids = []
+        visibility_vectors = []
+        category_ids = []
+        if self.new_match:
+            frame_x_off_values, frame_z_values, frame_visibility_vectors = [], [], []
+
+        for i in range(len(gt_lanes)):
+
+            # convert gt label to anchor label
+            # consider individual out-of-range interpolation still visible
+            ass_id, x_off_values, z_values, visibility_vec = self.convert_label_to_anchor(gt_lanes[i], H_im2g)
+            if not self.new_match:
+                if ass_id >= 0:
+                    gt_anchors.append(np.vstack([x_off_values, z_values]).T)
+                    ass_ids.append(ass_id)
+                    visibility_vectors.append(visibility_vec)
+                    category_ids.append(gt_category[i])
+            else:
+                if len(x_off_values) > 0:
+                    frame_x_off_values.append(x_off_values)
+                    frame_z_values.append(z_values)
+                    frame_visibility_vectors.append(visibility_vec)
+
+        if self.new_match:
+            frame_x_off_values, frame_z_values, frame_visibility_vectors = np.array(frame_x_off_values), np.array(frame_z_values), np.array(frame_visibility_vectors)
+            if frame_visibility_vectors.shape[0] > 0:  # frame has lane
+                frame_visibility_vectors_expand = np.repeat(np.expand_dims(frame_visibility_vectors, axis=1), self.anchor_num, axis=1)
+                frame_x_off_norm = np.linalg.norm(np.multiply(frame_x_off_values, frame_visibility_vectors_expand), axis=2) / np.sum(frame_visibility_vectors_expand, axis=2)
+                for an_id in range(frame_x_off_values.shape[1]):
+                    anchor_gts_x_off = frame_x_off_norm[:, an_id]
+                    matched_gt_id = np.argmin(anchor_gts_x_off)
+                    # # decide whether match, use different threshold for anchors of different shear angle
+                    # if an_id < 3 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                    #     matched = True
+                    # elif an_id >= 3 * self.anchor_num_before_shear and an_id < 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 2 * self.match_dist_thre_3d:
+                    #     matched = True
+                    # elif an_id >= 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 4 * self.match_dist_thre_3d:
+                    #     matched = True
+                    # else:
+                    #     matched = False
+                    # if matched:
+                    if anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                        gt_anchors.append(np.vstack([frame_x_off_values[matched_gt_id, an_id], frame_z_values[matched_gt_id]]).T)
+                        ass_ids.append((an_id, matched_gt_id))
+                        visibility_vectors.append(frame_visibility_vectors[matched_gt_id])
+                        category_ids.append(gt_category[matched_gt_id])
+
+        _laneline_ass_id = ass_ids
+        _label_laneline = gt_anchors
+        _gt_laneline_visibility = visibility_vectors
+        _gt_laneline_category = category_ids
+
+        # normalize x anad z, in replacement of normalize_lane_label
+        for lane in _label_laneline:
+            lane[:, 0] = np.divide(lane[:, 0], self._x_off_std)
+            if not self.no_3d:
+                lane[:, 1] = np.divide(lane[:, 1], self._z_std)
+
+        return _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
+                _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
+                _gt_laneline_category_org, _laneline_ass_id
 
 
     def preprocess_data_from_json_openlane(self, idx_json_file):
@@ -429,6 +628,7 @@ class LaneDataset(Dataset):
         gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
 
         # convert 3d lanes to flat ground space
+        import pdb; pdb.set_trace()
         self.convert_lanes_3d_to_gflat(gt_lanes, P_g2gflat)
 
         gt_anchors = []
@@ -508,9 +708,14 @@ class LaneDataset(Dataset):
         """
         idx_json_file = self._label_list[idx]
         # preprocess data from json file
-        _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
-            _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
-            _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_openlane(idx_json_file)
+        if 'openlane' in self.dataset_name:
+            _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
+                _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
+                _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_openlane(idx_json_file)
+        elif 'once' in self.dataset_name:
+            _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
+                _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
+                _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_once(idx_json_file)
 
         with open(idx_json_file, 'r') as file:
             file_lines = [line for line in file]
@@ -520,7 +725,7 @@ class LaneDataset(Dataset):
         if not self.fix_cam:
             gt_cam_height = _label_cam_height
             gt_cam_pitch = _label_cam_pitch
-            if 'openlane' in self.dataset_name:
+            if 'openlane' in self.dataset_name or 'once' in self.dataset_name:
                 intrinsics = cam_intrinsics
                 extrinsics = cam_extrinsics
             else:
@@ -664,7 +869,7 @@ class LaneDataset(Dataset):
             seg_bev_map = self.draw_on_ipm_seg_bev(seg_bev_map, gt_anchor_bev, width=self.lane_width)
             seg_bev_map = torch.from_numpy(seg_bev_map.astype(np.float32))
             seg_bev_map.unsqueeze_(0)
-            
+
         if self.seg_bev:
             if self.data_aug:
                 aug_mat = torch.from_numpy(aug_mat.astype(np.float32))
@@ -674,8 +879,8 @@ class LaneDataset(Dataset):
         else:
             if self.data_aug:
                 aug_mat = torch.from_numpy(aug_mat.astype(np.float32))
-                return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name
-            return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name
+                return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, aug_mat, seg_name, 0
+            return idx_json_file, image, seg_label, gt_anchor, gt_laneline_img, idx, gt_cam_height, gt_cam_pitch, intrinsics, extrinsics, seg_name, 0
 
     # old getitem, workable
     def __getitem__(self, idx):
@@ -1222,6 +1427,7 @@ class LaneDataset(Dataset):
                 cam_K = cam_intrinsics_all[idx]
                 if 'openlane' in self.dataset_name:
                     cam_E = cam_extrinsics_all[idx]
+                    import pdb; pdb.set_trace()
                     P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
                     H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
                 else:
@@ -1425,6 +1631,403 @@ class LaneDataset(Dataset):
         return lane_x_off_std, lane_y_off_std, lane_z_std,\
                anchor_origins, anchor_angles
 
+    def init_dataset_once_beta(self, dataset_base_dir, json_file_path):
+        """
+        :param dataset_info_file:
+        :return: image paths, labels in unormalized net input coordinates
+
+        data processing:
+        ground truth labels map are scaled wrt network input sizes
+        """
+        # save label list and this determine the idx order
+        label_list = glob.glob(json_file_path + '*/*/*.json', recursive=True)
+        self._label_list = []
+        for label_file in label_list:
+            if not os.path.getsize(label_file):
+                # print('Empty file: {}'.format(label_file))
+                continue
+            if 'train' in label_file:
+                image_path = label_file.replace('train', 'data').replace('.json', '.jpg')
+            elif 'val' in label_file:
+                image_path = label_file.replace('val', 'data').replace('.json', '.jpg')
+            elif 'test' in label_file:
+                image_path = label_file.replace('test', 'data').replace('.json', '.jpg')
+            if not os.path.exists(image_path):
+                # print('image not exist in {:s}'.format(image_path))
+                continue
+            self._label_list.append(label_file)
+        # print("Samples:", len(self._label_list))
+
+        # accelerate once dataset IO
+        Path("./.cache/").mkdir(parents=True, exist_ok=True)
+        if self.use_default_anchor:
+            if "train/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_train.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_train.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+            elif "val/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_valid.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_valid.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+            elif "test/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_test.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_test.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+        else:
+            if "train/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_train_newanchor.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_train_newanchor.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+            elif "val/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_valid_newanchor.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_valid_newanchor.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+            elif "test/" in json_file_path:
+                if os.path.isfile("./.cache/once_preprocess_test_newanchor.pkl"):
+                    # TODO: need to change later
+                    with open("./.cache/once_preprocess_test_newanchor.pkl", "rb") as f:
+                        cache_file = pickle.load(f)
+                        return self.read_cache_file_beta(cache_file)
+
+        # load image path, and lane pts
+        label_image_path = []
+        gt_laneline_pts_all = []
+        gt_centerline_pts_all = []
+        gt_laneline_visibility_all = []
+        gt_centerline_visibility_all = []
+        gt_laneline_category_all = []
+        gt_cam_height_all = []
+        gt_cam_pitch_all = []
+        cam_intrinsics_all = []
+        cam_extrinsics_all = []
+
+        # if 'train' in self.json_file_path:
+        #     txt_path = ops.join(os.path.dirname(os.path.dirname(dataset_base_dir)), 'list/train.txt')
+        # if 'val' in self.json_file_path:
+        #     txt_path = ops.join(os.path.dirname(os.path.dirname(dataset_base_dir)), 'list/val.txt')
+        # with open(txt_path,'r') as f:
+        #     for line in f:
+        #         image_path = ops.join(dataset_base_dir, line.strip('\n').strip('/'))
+        #         # assert ops.exists(image_path), '{:s} not exist'.format(image_path)
+        #         label_image_path.append(image_path)
+
+        for label_file in self._label_list:
+            if 'training' in label_file:
+                image_path = label_file.replace('training', 'data').replace('.json', '.jpg')
+            elif 'validation' in label_file:
+                image_path = label_file.replace('validation', 'data').replace('.json', '.jpg')
+            elif 'test' in label_file:
+                image_path = label_file.replace('test', 'data').replace('.json', '.jpg')
+            label_image_path.append(image_path)
+
+            with open(label_file, 'r') as file:
+                file_lines = [line for line in file]
+                if len(file_lines) != 0:
+                    info_dict = json.loads(file_lines[0])
+                else:
+                    print('Empty label_file:', label_file)
+                    continue
+                if not self.fix_cam:
+                    # # Re-calculate extrinsic matrix based on ground coordinate
+                    cam_pitch = 0.5/180*np.pi
+                    cam_height = 1.5
+                    cam_extrinsics = np.array([[np.cos(cam_pitch), 0, -np.sin(cam_pitch), 0],
+                                                [0, 1, 0, 0],
+                                                [np.sin(cam_pitch), 0,  np.cos(cam_pitch), cam_height],
+                                                [0, 0, 0, 1]], dtype=float)
+                    R_vg = np.array([[0, 1, 0],
+                                     [-1, 0, 0],
+                                     [0, 0, 1]], dtype=float)
+                    R_gc = np.array([[1, 0, 0],
+                                     [0, 0, 1],
+                                     [0, -1, 0]], dtype=float)
+                    cam_extrinsics[:3, :3] = np.matmul(np.matmul(
+                                                np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
+                                                    R_vg), R_gc)
+                    cam_extrinsics[0:2, 3] = 0.0
+                    cam_extrinsics_all.append(cam_extrinsics)
+
+                    # gt_cam_height = info_dict['cam_height']
+                    gt_cam_height = cam_extrinsics[2, 3] #TODO:check the height
+                    # gt_cam_height = 2.0
+                    gt_cam_height_all.append(gt_cam_height)
+                    # gt_cam_height_all.append(2.0)
+
+                    gt_cam_pitch_all.append(0)
+
+                    if 'calibration' in info_dict:
+                        cam_intrinsics = info_dict['calibration']
+                        cam_intrinsics = np.array(cam_intrinsics)
+                        cam_intrinsics = cam_intrinsics[:, :3]
+                        cam_intrinsics_all.append(cam_intrinsics)
+                    else:
+                        cam_intrinsics_all.append(self.K)
+
+                gt_lanes_packed = info_dict['lanes']
+                gt_lane_pts, gt_lane_visibility, gt_laneline_category = [], [], []
+                for i, gt_lane_packed in enumerate(gt_lanes_packed):
+                    # A GT lane can be either 2D or 3D
+                    # if a GT lane is 3D, the height is intact from 3D GT, so keep it intact here too
+                    lane = np.array(gt_lane_packed).T
+
+                    # Coordinate convertion for openlane_300 data
+                    lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
+                    # cam_representation = np.linalg.inv(
+                    #                         np.array([[0, 0, 1, 0],
+                    #                                   [-1, 0, 0, 0],
+                    #                                   [0, -1, 0, 0],
+                    #                                   [0, 0, 0, 1]], dtype=float))  # transformation from apollo camera to openlane camera
+                    # lane = np.matmul(cam_extrinsics, np.matmul(cam_representation, lane))
+                    lane = np.matmul(cam_extrinsics, lane)
+
+                    lane = lane[0:3, :].T
+                    lane = lane[lane[:,1].argsort()] #TODO:make y mono increase
+                    # lane = np.array(gt_lane_packed)
+                    gt_lane_pts.append(lane)
+                    gt_lane_visibility.append(1.0)
+                    gt_laneline_category.append(1)
+
+                    # remove lane too far
+                    # if np.amin(gt_lane_pts[i][:, 1]) > 10.0:
+                    #     gt_lane_visibility[i] = np.zeros_like(gt_lane_visibility[i])
+                gt_laneline_pts_all.append(gt_lane_pts)
+                gt_laneline_visibility_all.append(gt_lane_visibility)
+                gt_laneline_category_all.append(np.array(gt_laneline_category, dtype=np.int32))
+
+        # save img index to name
+        idx_path = {}
+        for i, path in enumerate(label_image_path):
+            idx_path[i] = path
+
+        if "ONCE" in json_file_path:
+            train_idx_file = os.path.join(self.save_json_path, 'train_idx_once.json')
+            val_idx_file = os.path.join(self.save_json_path, 'val_idx_once.json')
+        else:
+            raise Exception("once version not supported")
+
+        if not ops.isfile(train_idx_file):
+            with open(train_idx_file, 'w') as f:
+                json.dump(idx_path, f)
+        elif not ops.isfile(val_idx_file):
+            with open(val_idx_file, 'w') as f:
+                json.dump(idx_path, f)
+
+        label_image_path = np.array(label_image_path)
+        gt_cam_height_all = np.array(gt_cam_height_all)
+        gt_cam_pitch_all = np.array(gt_cam_pitch_all)
+        gt_laneline_pts_all_org = copy.deepcopy(gt_laneline_pts_all)
+        gt_laneline_category_all_org = copy.deepcopy(gt_laneline_category_all)
+        cam_intrinsics_all = np.array(cam_intrinsics_all)
+        cam_extrinsics_all = np.array(cam_extrinsics_all)
+
+        anchor_origins = None
+        anchor_angles = None
+        if not self.use_default_anchor:
+            # calculate 2D anchor location by projecting 3D anchor
+            # Non-perfect method: use fixed camera parameter to ensure fixed anchor on both 2D and 3D
+            mean_cam_height = np.mean(gt_cam_height_all)
+            mean_cam_pitch = np.mean(gt_cam_pitch_all)
+            print("mean_cam_height {}, mean_cam_pitch {}".format(mean_cam_height, mean_cam_pitch))
+            mean_H_g2im = homograpthy_g2im(mean_cam_pitch, mean_cam_height, self.K)
+            left_orig, right_orig, bottom_orig = [], [], []
+            left_angles, right_angles, bottom_angles = [], [], []
+            for aid, anchor_line in enumerate(self.anchor_grid_x):
+                end_points_x = np.array([anchor_line[0], anchor_line[-1]])
+                end_points_y = np.array([self.anchor_y_steps[0], self.anchor_y_steps[-1]])
+                end_points_u, end_points_v = homographic_transformation(mean_H_g2im, end_points_x, end_points_y)
+                u1, v1, u2, v2 = end_points_u[0], end_points_v[0], end_points_u[1], end_points_v[1]
+                angle_rad = np.arctan(((v1 - v2) * self.v_ratio) / ((u1 - u2) * self.u_ratio))
+                angle_rad = -angle_rad if angle_rad < 0 else np.pi - angle_rad
+                angle_deg = angle_rad * 180 / np.pi
+                u_bot = (u1 - u2) / (v1 - v2) * (self.h_org - v1) + u1
+                if u_bot < 0:  # intersect on left edge
+                    v_orig = (v1 - v2) / (u1 - u2) * (-u1) + v1
+                    left_orig.append(v_orig / self.h_org)
+                    left_angles.append(angle_deg)
+                elif u_bot > self.w_org:  # intersect on right edge
+                    v_orig = (v1 - v2) / (u1 - u2) * (self.w_org - u1) + v1
+                    right_orig.append(v_orig / self.h_org)
+                    right_angles.append(angle_deg)
+                else:  # intersect on bottom edge
+                    bottom_orig.append(u_bot / self.w_org)
+                    bottom_angles.append(angle_deg)
+            anchor_origins = [np.array(left_orig), np.array(right_orig), np.array(bottom_orig)]
+            anchor_angles = [np.array(left_angles), np.array(right_angles), np.array(bottom_angles)]
+
+        # convert labeled laneline to anchor format
+        gt_laneline_ass_ids = []
+        gt_centerline_ass_ids = []
+        lane_x_off_all = []
+        lane_z_all = []
+        lane_y_off_all = []  # this is the offset of y when transformed back 3 3D
+        visibility_all_flat = []
+        gt_laneline_im_all = []
+        gt_centerline_im_all = []
+        for idx in range(len(gt_laneline_pts_all)):
+            # if idx == 936:
+            #     print(label_image_path[idx])
+            # fetch camera height and pitch
+            if not self.fix_cam:
+                cam_K = cam_intrinsics_all[idx]
+                if 'openlane' in self.dataset_name or 'once' in self.dataset_name:
+                    cam_E = cam_extrinsics_all[idx]
+                    P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
+                    H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
+                else:
+                    gt_cam_height = gt_cam_height_all[idx]
+                    gt_cam_pitch = gt_cam_pitch_all[idx]
+                    P_g2im = projection_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+                    H_g2im = homograpthy_g2im(gt_cam_pitch, gt_cam_height, cam_K)
+                H_im2g = np.linalg.inv(H_g2im)
+            else:
+                P_g2im = self.P_g2im
+                H_im2g = self.H_im2g
+            P_g2gflat = np.matmul(H_im2g, P_g2im)
+
+            gt_lanes = gt_laneline_pts_all[idx]
+            gt_visibility = gt_laneline_visibility_all[idx]
+            gt_category = gt_laneline_category_all[idx]
+
+            # prune gt lanes by visibility labels
+            gt_lanes = [prune_3d_lane_by_visibility(gt_lane, gt_visibility[k]).squeeze(0) for k, gt_lane in enumerate(gt_lanes)]
+            gt_laneline_pts_all_org[idx] = gt_lanes
+
+            # project gt laneline to image plane
+            gt_laneline_im = []
+            for gt_lane in gt_lanes:
+                x_vals, y_vals = projective_transformation(P_g2im, gt_lane[:,0], gt_lane[:,1], gt_lane[:,2])
+                gt_laneline_im_oneline = np.array([x_vals, y_vals]).T.tolist()
+                gt_laneline_im.append(gt_laneline_im_oneline)
+            gt_laneline_im_all.append(gt_laneline_im)
+
+            # prune out-of-range points are necessary before transformation
+            gt_lanes = [prune_3d_lane_by_range(gt_lane, 3*self.x_min, 3*self.x_max) for gt_lane in gt_lanes]
+            gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
+            # convert 3d lanes to flat ground space
+            self.convert_lanes_3d_to_gflat(gt_lanes, P_g2gflat)
+            gt_anchors = []
+            ass_ids = []
+            visibility_vectors = []
+            category_ids = []
+            if self.new_match:
+                frame_x_off_values, frame_z_values, frame_visibility_vectors = [], [], []
+            for i in range(len(gt_lanes)):
+                # convert gt label to anchor label
+                # consider individual out-of-range interpolation still visible
+                ass_id, x_off_values, z_values, visibility_vec = self.convert_label_to_anchor(gt_lanes[i], H_im2g)
+                if not self.new_match:
+                    if ass_id >= 0:
+                        gt_anchors.append(np.vstack([x_off_values, z_values]).T)
+                        ass_ids.append(ass_id)
+                        visibility_vectors.append(visibility_vec)
+                        category_ids.append(gt_category[i])
+                else:
+                    if len(x_off_values) > 0:
+                        frame_x_off_values.append(x_off_values)
+                        frame_z_values.append(z_values)
+                        frame_visibility_vectors.append(visibility_vec)
+            if self.new_match:
+                frame_x_off_values, frame_z_values, frame_visibility_vectors = np.array(frame_x_off_values), np.array(frame_z_values), np.array(frame_visibility_vectors)
+                if frame_visibility_vectors.shape[0] > 0:  # frame has lane
+                    frame_visibility_vectors_expand = np.repeat(np.expand_dims(frame_visibility_vectors, axis=1), self.anchor_num, axis=1)
+                    frame_x_off_norm = np.linalg.norm(np.multiply(frame_x_off_values, frame_visibility_vectors_expand), axis=2) / np.sum(frame_visibility_vectors_expand, axis=2)
+                    for an_id in range(frame_x_off_values.shape[1]):
+                        anchor_gts_x_off = frame_x_off_norm[:, an_id]
+                        matched_gt_id = np.argmin(anchor_gts_x_off)
+                        # # decide whether match, use different threshold for anchors of different shear angle
+                        # if an_id < 3 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                        #     matched = True
+                        # elif an_id >= 3 * self.anchor_num_before_shear and an_id < 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 2 * self.match_dist_thre_3d:
+                        #     matched = True
+                        # elif an_id >= 5 * self.anchor_num_before_shear and anchor_gts_x_off[matched_gt_id] < 4 * self.match_dist_thre_3d:
+                        #     matched = True
+                        # else:
+                        #     matched = False
+                        # if matched:
+                        if anchor_gts_x_off[matched_gt_id] < self.match_dist_thre_3d:
+                            gt_anchors.append(np.vstack([frame_x_off_values[matched_gt_id, an_id], frame_z_values[matched_gt_id]]).T)
+                            ass_ids.append((an_id, matched_gt_id))
+                            visibility_vectors.append(frame_visibility_vectors[matched_gt_id])
+                            category_ids.append(gt_category[matched_gt_id])
+
+            for i in range(len(gt_anchors)):
+                lane_x_off_all.append(gt_anchors[i][:, 0])
+                lane_z_all.append(gt_anchors[i][:, 1])
+                # compute y offset when transformed back to 3D space
+                lane_y_off_all.append(-gt_anchors[i][:, 1]*self.anchor_y_steps/gt_cam_height)
+            visibility_all_flat.extend(visibility_vectors)
+            gt_laneline_ass_ids.append(ass_ids)
+            gt_laneline_pts_all[idx] = gt_anchors
+            gt_laneline_visibility_all[idx] = visibility_vectors
+            gt_laneline_category_all[idx] = category_ids
+
+        lane_x_off_all = np.array(lane_x_off_all)
+        lane_y_off_all = np.array(lane_y_off_all)
+        lane_z_all = np.array(lane_z_all)
+        visibility_all_flat = np.array(visibility_all_flat)
+
+        # computed weighted std based on visibility
+        lane_x_off_std = np.sqrt(np.average(lane_x_off_all**2, weights=visibility_all_flat, axis=0))
+        lane_y_off_std = np.sqrt(np.average(lane_y_off_all**2, weights=visibility_all_flat, axis=0))
+        lane_z_std = np.sqrt(np.average(lane_z_all**2, weights=visibility_all_flat, axis=0))
+
+        cache_file = {}
+        # cache_file["label_image_path"] = label_image_path                               # replacable
+        # cache_file["gt_laneline_pts_all_org"] = gt_laneline_pts_all_org                 # replacable
+        # cache_file["gt_laneline_pts_all"] = gt_laneline_pts_all                         # replacable
+        # cache_file["gt_centerline_pts_all"] = gt_centerline_pts_all                     # not used
+        # cache_file["gt_cam_height_all"] = gt_cam_height_all                             # replacable
+        # cache_file["gt_cam_pitch_all"] = gt_cam_pitch_all                               # replacable
+        # cache_file["gt_laneline_ass_ids"] = gt_laneline_ass_ids                         # replacable
+        # cache_file["gt_centerline_ass_ids"] = gt_centerline_ass_ids                     # not used
+        cache_file["lane_x_off_std"] = lane_x_off_std
+        cache_file["lane_y_off_std"] = lane_y_off_std
+        cache_file["lane_z_std"] = lane_z_std
+        # cache_file["gt_laneline_visibility_all"] = gt_laneline_visibility_all           # replacable
+        # cache_file["gt_centerline_visibility_all"] = gt_centerline_visibility_all       # not used
+        # cache_file["gt_laneline_category_all_org"] = gt_laneline_category_all_org       # replacable
+        # cache_file["gt_laneline_category_all"] = gt_laneline_category_all               # replacable
+        # cache_file["gt_laneline_im_all"] = gt_laneline_im_all                           # not used
+        # cache_file["gt_centerline_im_all"] = gt_centerline_im_all                       # not used
+        # cache_file["cam_intrinsics_all"] = cam_intrinsics_all                           # replacable
+        # cache_file["cam_extrinsics_all"] = cam_extrinsics_all                           # replacable
+        cache_file["anchor_origins"] = anchor_origins
+        cache_file["anchor_angles"] = anchor_angles
+
+        if self.use_default_anchor:
+            if "training/" in json_file_path:
+                with open("./.cache/once_preprocess_train.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+            if "validation/" in json_file_path:
+                with open("./.cache/once_preprocess_valid.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+            if "test/" in json_file_path:
+                with open("./.cache/once_preprocess_test.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+        else:
+            if "training/" in json_file_path:
+                with open("./.cache/once_preprocess_train_newanchor.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+            if "validation/" in json_file_path:
+                with open("./.cache/once_preprocess_valid_newanchor.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+            if "test/" in json_file_path:
+                with open("./.cache/once_preprocess_test_newanchor.pkl", "wb") as f:
+                    pickle.dump(cache_file, f)
+
+        return lane_x_off_std, lane_y_off_std, lane_z_std,\
+               anchor_origins, anchor_angles
+
 
     def set_x_off_std(self, x_off_std):
         self._x_off_std = x_off_std
@@ -1454,7 +2057,7 @@ class LaneDataset(Dataset):
             Convert a set of lanes from 3D ground coordinates [X, Y, Z], to IPM-based
             flat ground coordinates [x_gflat, y_gflat, Z]
         :param lanes: a list of N x 3 numpy arrays recording a set of 3d lanes
-        :param P_g2gflat: projection matrix from 3D ground coordinates to frat ground coordinates
+        :param P_g2gflat: projection matrix from 3D ground coordinates to flat ground coordinates
         :return:
         """
         # TODO: this function can be simplified with the derived formula
@@ -1607,7 +2210,15 @@ class LaneDataset(Dataset):
                 info_dict = json.loads(file_lines[0])
 
                 if not self.fix_cam:
-                    cam_extrinsics = np.array(info_dict['extrinsic'])
+                    if 'extrinsic' in info_dict:
+                        cam_extrinsics = np.array(info_dict['extrinsic'])
+                    else:
+                        cam_pitch = 0.5/180*np.pi
+                        cam_height = 1.5
+                        cam_extrinsics = np.array([[np.cos(cam_pitch), 0, -np.sin(cam_pitch), 0],
+                                                    [0, 1, 0, 0],
+                                                    [np.sin(cam_pitch), 0,  np.cos(cam_pitch), cam_height],
+                                                    [0, 0, 0, 1]], dtype=float)
                     # Re-calculate extrinsic matrix based on ground coordinate
                     R_vg = np.array([[0, 1, 0],
                                         [-1, 0, 0],
@@ -1630,6 +2241,10 @@ class LaneDataset(Dataset):
                     if 'intrinsic' in info_dict:
                         cam_intrinsics = info_dict['intrinsic']
                         cam_intrinsics = np.array(cam_intrinsics)
+                    elif 'calibration' in info_dict:
+                        cam_intrinsics = info_dict['calibration']
+                        cam_intrinsics = np.array(cam_intrinsics)
+                        cam_intrinsics = cam_intrinsics[:, :3]
                     else:
                         cam_intrinsics = self.K  
 
@@ -2107,7 +2722,7 @@ def compute_3d_lanes_all_prob(pred_anchor, dataset, anchor_y_steps, h_cam):
 
     return lanelines_out, centerlines_out, lanelines_prob, centerlines_prob
 
-def compute_3d_lanes_all_category(pred_anchor, dataset, anchor_y_steps, h_cam):
+def compute_3d_lanes_all_category(pred_anchor, dataset, anchor_y_steps, h_cam, model_name=None):
     anchor_dim = dataset.anchor_dim
     num_category = dataset.num_category
     anchor_x_steps = dataset.anchor_x_steps if dataset.use_default_anchor else dataset.anchor_grid_x
@@ -2139,7 +2754,6 @@ def compute_3d_lanes_all_category(pred_anchor, dataset, anchor_y_steps, h_cam):
         x_g = x_offsets + anchor_x_steps[j]
         z_g = pred_anchor[j, num_y_steps:2*num_y_steps]
         visibility = pred_anchor[j, 2*num_y_steps:3*num_y_steps]
-        # visibility = np.ones_like(visibility)
         category = pred_anchor[j, 3*num_y_steps:]
         if np.argmax(category) == 0:
             continue

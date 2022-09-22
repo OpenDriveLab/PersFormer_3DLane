@@ -14,6 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
+from operator import mod
 import torch
 import torch.optim
 import torch.nn as nn
@@ -28,9 +29,10 @@ from tensorboardX import SummaryWriter
 
 from data.Load_Data import *
 from models.PersFormer import PersFormer
+from models.networks import erfnet, GeoNet3D_ext
 from models.networks import Loss_crit
 from models.networks.feature_extractor import *
-from utils import eval_3D_lane
+from utils import eval_3D_lane, eval_3D_once
 from utils.utils import *
 
 # ddp related
@@ -66,18 +68,23 @@ class Runner:
         self.train_dataset, self.train_loader, self.train_sampler = self._get_train_dataset()
         self.valid_dataset, self.valid_loader, self.valid_sampler = self._get_valid_dataset()
 
-        self.crit_string = 'loss_gflat'
+        # self.crit_string = 'loss_gflat'
+        self.crit_string = args.crit_string
         # Define loss criteria
         if self.crit_string == 'loss_gflat_3D':
             self.criterion = Loss_crit.Laneline_loss_gflat_3D(args.batch_size, self.train_dataset.num_types,
                                                               self.train_dataset.anchor_x_steps, self.train_dataset.anchor_y_steps,
                                                               self.train_dataset._x_off_std, self.train_dataset._y_off_std,
                                                               self.train_dataset._z_std, args.pred_cam, args.no_cuda)
+        elif self.crit_string == 'loss_gflat_novis':
+            self.criterion = Loss_crit.Laneline_loss_gflat_novis_withdict(self.train_dataset.num_types, args.num_y_steps, args.pred_cam)
         else:
             self.criterion = Loss_crit.Laneline_loss_gflat_multiclass(self.train_dataset.num_types, args.num_y_steps,
                                                                       args.pred_cam, args.num_category, args.no_3d, args.loss_dist)
         if 'openlane' in args.dataset_name:
             self.evaluator = eval_3D_lane.LaneEval(args)
+        elif 'once' in args.dataset_name:
+            self.evaluator = eval_3D_once.LaneEval()
         else:
             self.evaluator = eval_3D_lane.LaneEval(args)
         # Tensorboard writer
@@ -100,7 +107,10 @@ class Runner:
         train_sampler = self.train_sampler
 
         # Define model or resume
-        model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_ddp()
+        if args.model_name == "PersFormer":
+            model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_ddp()
+        elif args.model_name == "GenLaneNet":
+            model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_ddp()
 
         criterion = self.criterion
         if not args.no_cuda:
@@ -110,9 +120,17 @@ class Runner:
 
         # Print model basic info
         if args.proc_id == 0:
-            print(40*"="+"\nArgs:{}\n".format(args)+40*"=")
-            print("Init model: '{}'".format(args.mod))
-            print("Number of parameters in model {} is {:.3f}M".format(args.mod, sum(tensor.numel() for tensor in model.parameters())/1e6))
+            if args.model_name == "PersFormer":
+                print(40*"="+"\nArgs:{}\n".format(args)+40*"=")
+                print("Init model: '{}'".format(args.mod))
+                print("Number of parameters in model {} is {:.3f}M".format(args.mod, sum(tensor.numel() for tensor in model.parameters())/1e6))
+            elif args.model_name == "GenLaneNet":
+                print(40*"="+"\nArgs:{}\n".format(args)+40*"=")
+                print("Init model: '{}'".format(args.mod))
+                print("Number of parameters in model1 {} is {:.3f}M".format(
+                    args.mod, sum(tensor.numel() for tensor in model1.parameters())/1e6))
+                print("Number of parameters in model2 {} is {:.3f}M".format(
+                    args.mod, sum(tensor.numel() for tensor in model2.parameters())/1e6))
 
         # image matrix
         _S_im_inv = torch.from_numpy(np.array([[1/np.float(args.resize_w),                         0, 0],
@@ -129,8 +147,13 @@ class Runner:
         for epoch in range(args.start_epoch, args.nepochs):
             if args.proc_id == 0:
                 print("\n => Start train set for EPOCH {}".format(epoch + 1))
+            if (args.proc_id == 0) and (args.model_name == "PersFormer"):
                 lr = optimizer.param_groups[0]['lr']
                 print('lr is set to {}'.format(lr))
+            elif args.model_name == "GenLaneNet":
+                lr = optimizer.param_groups[0]['lr']
+                if args.proc_id == 0:
+                    print('lr is set to {}'.format(lr))
 
             if args.distributed:
                 train_sampler.set_epoch(epoch)
@@ -150,7 +173,10 @@ class Runner:
             losses_2d_reg = AverageMeter()
 
             # Specify operation modules
-            model.train()
+            if args.model_name == "PersFormer":
+                model.train()
+            elif args.model_name == "GenLaneNet":
+                model2.train()
             # compute timing
             end = time.time()
             # Start training loop
@@ -179,19 +205,31 @@ class Runner:
 
                 # Run model
                 optimizer.zero_grad()
-                # Inference model
-                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
 
-                # 3D loss
-                loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
-                # Add laneatt loss
-                loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
-                                                                         cls_loss_weight=args.cls_loss_weight,
-                                                                         reg_vis_loss_weight=args.reg_vis_loss_weight)
-                # segmentation loss
-                loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
-                # overall loss
-                loss = self.compute_loss(args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict)
+                if args.model_name == "PersFormer":
+                    # Inference model
+                    laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
+
+                    # 3D loss
+                    loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
+                    # Add laneatt loss
+                    loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
+                                                                            cls_loss_weight=args.cls_loss_weight,
+                                                                            reg_vis_loss_weight=args.reg_vis_loss_weight)
+                    # segmentation loss
+                    loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
+                    # overall loss
+                    loss = self.compute_loss(args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict)
+
+                elif args.model_name == "GenLaneNet":
+                    output1 = model1(input, no_lane_exist=True)
+                    with torch.no_grad():
+                        # output1 = F.softmax(output1, dim=1)
+                        output1 = output1.softmax(dim=1)
+                        output1 = output1 / torch.max(torch.max(output1, dim=2, keepdim=True)[0], dim=3, keepdim=True)[0]
+                    output1 = output1[:, 1:, :, :]
+                    output_net = model2(output1, M_inv)
+                    loss, loss_dict = criterion(output_net, gt)
 
                 if loss.data > args.loss_threshold:
                     print("Batch with idx {} skipped due to aug-caused too large loss".format(idx.numpy()))
@@ -207,8 +245,14 @@ class Runner:
                 optimizer.step()
 
                 # reduce loss from all gpu, then update losses
-                loss_list = [losses, losses_3d_vis, losses_3d_prob, losses_3d_reg, losses_2d_vis, losses_2d_cls, losses_2d_reg]
-                loss_list = self.reduce_all_loss(args, loss_list, loss, loss_3d_dict, loss_att_dict, input.size(0))
+                if args.model_name == "PersFormer":
+                    loss_list = [losses, losses_3d_vis, losses_3d_prob, losses_3d_reg, losses_2d_vis, losses_2d_cls, losses_2d_reg]
+                    loss_list = self.reduce_all_loss(args, loss_list, loss, loss_3d_dict, loss_att_dict, input.size(0))
+                elif args.model_name == "GenLaneNet":
+                    reduced_loss = loss.data
+                    reduced_loss_all = reduce_tensors(reduced_loss, world_size=args.world_size)
+                    losses.update(to_python_float(reduced_loss_all), input.size(0))
+                    loss_list = [losses]
 
                 # Time trainig iteration
                 batch_time.update(time.time() - end)
@@ -281,7 +325,7 @@ class Runner:
             writer.close()
 
 
-    def validate(self, model, epoch=0, vis=False):
+    def validate(self, model, model2=None, epoch=0, vis=False):
         args = self.args
         loader = self.valid_loader
         dataset = self.valid_dataset
@@ -306,7 +350,10 @@ class Runner:
         gt_lines_sub = []
 
         # Evaluate model
-        model.eval()
+        if args.model_name == "PersFormer":
+            model.eval()
+        elif args.model_name == "GenLaneNet":
+            model2.eval()
 
         # Start validation loop
         with torch.no_grad():
@@ -323,48 +370,66 @@ class Runner:
                 input = input.contiguous().float()
 
                 M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
-                # Inference model
-                laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
 
-                ## compute FPS
-                # iterations = 1000
-                # torch.cuda.synchronize()
-                # start = time.time()
-                # for _ in range(iterations):
-                #     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
-                # torch.cuda.synchronize()
-                # end = time.time()
-                # FPS = iterations / (end - start)
-                # print("FPS: ", FPS)
-                # break
+                if args.model_name == "PersFormer":
+                    # Inference model
+                    laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
 
-                # 3D loss
-                loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
-                # Add laneatt loss
-                loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
-                                                                            cls_loss_weight=args.cls_loss_weight,
-                                                                            reg_vis_loss_weight=args.reg_vis_loss_weight)
-                # segmentation loss
-                loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
-                # overall loss
-                loss = self.compute_loss(args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict)
+                    ## compute FPS
+                    # iterations = 1000
+                    # torch.cuda.synchronize()
+                    # start = time.time()
+                    # for _ in range(iterations):
+                    #     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
+                    # torch.cuda.synchronize()
+                    # end = time.time()
+                    # FPS = iterations / (end - start)
+                    # print("FPS: ", FPS)
+                    # break
 
-                # reduce loss from all gpu, then update losses
-                loss_list = [losses, losses_3d_vis, losses_3d_prob, losses_3d_reg, losses_2d_vis, losses_2d_cls, losses_2d_reg]
-                loss_list = self.reduce_all_loss(args, loss_list, loss, loss_3d_dict, loss_att_dict, input.size(0))
+                    # 3D loss
+                    loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
+                    # Add laneatt loss
+                    loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
+                                                                                cls_loss_weight=args.cls_loss_weight,
+                                                                                reg_vis_loss_weight=args.reg_vis_loss_weight)
+                    # segmentation loss
+                    loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
+                    # overall loss
+                    loss = self.compute_loss(args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict)
+
+                    # reduce loss from all gpu, then update losses
+                    loss_list = [losses, losses_3d_vis, losses_3d_prob, losses_3d_reg, losses_2d_vis, losses_2d_cls, losses_2d_reg]
+                    loss_list = self.reduce_all_loss(args, loss_list, loss, loss_3d_dict, loss_att_dict, input.size(0))
+                elif args.model_name == "GenLaneNet":
+                    output1 = model(input, no_lane_exist=True)
+                    # output1 = F.softmax(output1, dim=1)
+                    output1 = output1.softmax(dim=1)
+                    output1 = output1 / torch.max(torch.max(output1, dim=2, keepdim=True)[0], dim=3, keepdim=True)[0]
+                    output1 = output1[:, 1:, :, :]
+                    output_net = model2(output1, M_inv)
+
+                    loss, loss_dict = criterion(output_net, gt)
+                    losses.update(loss.item(), input.size(0))
+                    # reduced_loss = loss.data
+                    # reduced_loss_all = reduce_tensors(reduced_loss, world_size=args.world_size)
+                    # losses.update(to_python_float(reduced_loss_all), input.size(0))
+                    loss_list = [losses]
+                    
 
                 # Print info
                 if (i + 1) % args.print_freq == 0 and args.proc_id == 0:
                         print('Test: [{0}/{1}]\t'
                                 'Loss {loss.val:.8f} ({loss.avg:.8f})'.format(i+1, len(loader), loss=loss_list[0]))
 
-                pred_pitch = pred_pitch.data.cpu().numpy().flatten()
-                pred_hcam = pred_hcam.data.cpu().numpy().flatten()
+                if args.model_name == "PersFormer":
+                    pred_pitch = pred_pitch.data.cpu().numpy().flatten()
+                    pred_hcam = pred_hcam.data.cpu().numpy().flatten()
+                    gt_laneline_img = gt_laneline_img.data.cpu().numpy()
                 gt_intrinsic = gt_intrinsic.data.cpu().numpy()
                 gt_extrinsic = gt_extrinsic.data.cpu().numpy()
                 output_net = output_net.data.cpu().numpy()
                 gt = gt.data.cpu().numpy()
-                gt_laneline_img = gt_laneline_img.data.cpu().numpy()
 
                 # unormalize lane outputs
                 num_el = input.size(0)
@@ -377,7 +442,7 @@ class Runner:
                     output_net = nms_bev(output_net, args)
 
                 # Visualization
-                if (i + 1) % args.save_freq == 0 or args.evaluate:
+                if ((i + 1) % args.save_freq == 0 or args.evaluate) and args.model_name == "PersFormer":
                     gt_2d = []
                     for j in range(num_el):
                         gt_2d.append(dataset.label_to_lanes(gt_laneline_img[j]))
@@ -414,7 +479,19 @@ class Runner:
                         with open(json_file, 'r') as file:
                             file_lines = [line for line in file]
                             json_line = json.loads(file_lines[0])
-                        img_path = json_line["file_path"]
+                    if args.dataset_name == 'openlane':
+                            img_path = json_line["file_path"]
+                            img_name = os.path.basename(img_path)
+                            img_name_all.append(img_name)
+                    elif args.dataset_name == 'once':
+                        if 'once' in args.dataset_name:
+                            if 'train' in json_file:
+                                img_path = json_file.replace('train', 'data').replace('.json', '.jpg')
+                            elif 'val' in json_file:
+                                img_path = json_file.replace('val', 'data').replace('.json', '.jpg')
+                            elif 'test' in json_file:
+                                img_path = json_file.replace('test', 'data').replace('.json', '.jpg')
+                            json_line["file_path"] = img_path
                         img_name = os.path.basename(img_path)
                         img_name_all.append(img_name)
 
@@ -436,78 +513,135 @@ class Runner:
                     with open(json_file, 'r') as file:
                         file_lines = [line for line in file]
                         json_line = json.loads(file_lines[0])
+                    if 'once' in args.dataset_name:
+                        if 'training' in json_file:
+                            img_path = json_file.replace('training', 'data').replace('.json', '.jpg')
+                        elif 'validation' in json_file:
+                            img_path = json_file.replace('validation', 'data').replace('.json', '.jpg')
+                        elif 'test' in json_file:
+                            img_path = json_file.replace('test', 'data').replace('.json', '.jpg')
+                        json_line["file_path"] = img_path
 
                     gt_lines_sub.append(copy.deepcopy(json_line))
 
                     lane_anchors = output_net[j]
                     # convert to json output format
-                    lanelines_pred, centerlines_pred, lanelines_prob, centerlines_prob = \
-                        compute_3d_lanes_all_category(lane_anchors, dataset, args.anchor_y_steps, gt_extrinsic[j][2,3])
+                    if args.model_name == "PersFormer":
+                        lanelines_pred, centerlines_pred, lanelines_prob, centerlines_prob = \
+                            compute_3d_lanes_all_category(lane_anchors, dataset, args.anchor_y_steps, gt_extrinsic[j][2,3], args.model_name)
+                    elif args.model_name == "GenLaneNet":
+                        lanelines_pred, centerlines_pred, lanelines_prob, centerlines_prob = \
+                            compute_3d_lanes_all_prob(lane_anchors, dataset, args.anchor_y_steps, gt_extrinsic[j][2,3])
                     json_line["laneLines"] = lanelines_pred
                     json_line["laneLines_prob"] = lanelines_prob
                     pred_lines_sub.append(copy.deepcopy(json_line))
 
                     # save 2d/3d eval results
-                    if args.evaluate:
+                    if args.evaluate and args.model_name == "PersFormer":
                         img_path = json_line["file_path"]
-                        self.save_eval_result(args, img_path, pred_decoded_2d[j], pred_decoded_2d_cate[j], lanelines_pred, lanelines_prob)
+                        if args.dataset_name == 'openlane':
+                            self.save_eval_result(args, img_path, pred_decoded_2d[j], pred_decoded_2d_cate[j], lanelines_pred, lanelines_prob)
+                        elif args.dataset_name == 'once':
+                            self.save_eval_result_once(args, img_path, lanelines_pred, lanelines_prob)
+
 
             if 'openlane' in args.dataset_name:
-                eval_stats = self.evaluator.bench_one_submit_openlane_DDP(pred_lines_sub, gt_lines_sub, vis=False)
+                eval_stats = self.evaluator.bench_one_submit_openlane_DDP(pred_lines_sub, gt_lines_sub, args.model_name, vis=False)
+            elif 'once' in args.dataset_name:
+                eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/Persformer/once_pred/test', args.eval_config_dir)
             else:
                 eval_stats = self.evaluator.bench_one_submit(pred_lines_sub, gt_lines_sub, vis=False)
 
-            gather_output = [None for _ in range(args.world_size)]
-            # all_gather all eval_stats and calculate mean
-            dist.all_gather_object(gather_output, eval_stats)
-            dist.barrier()
-            r_lane = np.sum([eval_stats_sub[8] for eval_stats_sub in gather_output])
-            p_lane = np.sum([eval_stats_sub[9] for eval_stats_sub in gather_output])
-            c_lane = np.sum([eval_stats_sub[10] for eval_stats_sub in gather_output])
-            cnt_gt = np.sum([eval_stats_sub[11] for eval_stats_sub in gather_output])
-            cnt_pred = np.sum([eval_stats_sub[12] for eval_stats_sub in gather_output])
-            match_num = np.sum([eval_stats_sub[13] for eval_stats_sub in gather_output])
-            Recall = r_lane / (cnt_gt + 1e-6)
-            Precision = p_lane / (cnt_pred + 1e-6)
-            f1_score = 2 * Recall * Precision / (Recall + Precision + 1e-6)
-            category_accuracy = c_lane / (match_num + 1e-6)
+            if 'openlane' in args.dataset_name:
+                gather_output = [None for _ in range(args.world_size)]
+                # all_gather all eval_stats and calculate mean
+                dist.all_gather_object(gather_output, eval_stats)
+                dist.barrier()
+                r_lane = np.sum([eval_stats_sub[8] for eval_stats_sub in gather_output])
+                p_lane = np.sum([eval_stats_sub[9] for eval_stats_sub in gather_output])
+                c_lane = np.sum([eval_stats_sub[10] for eval_stats_sub in gather_output])
+                cnt_gt = np.sum([eval_stats_sub[11] for eval_stats_sub in gather_output])
+                cnt_pred = np.sum([eval_stats_sub[12] for eval_stats_sub in gather_output])
+                match_num = np.sum([eval_stats_sub[13] for eval_stats_sub in gather_output])
+                if cnt_gt!=0 :
+                    Recall = r_lane / cnt_gt
+                else:
+                    Recall = r_lane / (cnt_gt + 1e-6)
+                if cnt_pred!=0:
+                    Precision = p_lane / cnt_pred
+                else:
+                    Precision = p_lane / (cnt_pred + 1e-6)
+                if (Recall + Precision)!=0:
+                    f1_score = 2 * Recall * Precision / (Recall + Precision)
+                else:
+                    f1_score = 2 * Recall * Precision / (Recall + Precision + 1e-6)
+                if match_num!=0:
+                    category_accuracy = c_lane / match_num
+                else:
+                    category_accuracy = c_lane / (match_num + 1e-6)
+                eval_stats[0] = f1_score
+                eval_stats[1] = Recall
+                eval_stats[2] = Precision
+                eval_stats[3] = category_accuracy
+                eval_stats[4] = np.sum([eval_stats_sub[4] for eval_stats_sub in gather_output]) / args.world_size
+                eval_stats[5] = np.sum([eval_stats_sub[5] for eval_stats_sub in gather_output]) / args.world_size
+                eval_stats[6] = np.sum([eval_stats_sub[6] for eval_stats_sub in gather_output]) / args.world_size
+                eval_stats[7] = np.sum([eval_stats_sub[7] for eval_stats_sub in gather_output]) / args.world_size
 
-            eval_stats[0] = f1_score
-            eval_stats[1] = Recall
-            eval_stats[2] = Precision
-            eval_stats[3] = category_accuracy
-            eval_stats[4] = np.sum([eval_stats_sub[4] for eval_stats_sub in gather_output]) / args.world_size
-            eval_stats[5] = np.sum([eval_stats_sub[5] for eval_stats_sub in gather_output]) / args.world_size
-            eval_stats[6] = np.sum([eval_stats_sub[6] for eval_stats_sub in gather_output]) / args.world_size
-            eval_stats[7] = np.sum([eval_stats_sub[7] for eval_stats_sub in gather_output]) / args.world_size
-
-            return loss_list, eval_stats
+                return loss_list, eval_stats
+            elif 'once' in args.dataset_name:
+                return loss_list, None
 
     def eval(self):
         args = self.args
-        model = PersFormer(args)
+        if args.model_name == "PersFormer":
+            model = PersFormer(args)
+        elif args.model_name == "GenLaneNet":
+            model1 = erfnet.ERFNet(args.num_class)
+            model2 = GeoNet3D_ext.Net(args, input_dim=args.num_class - 1)
+            define_init_weights(model2, args.weight_init)
         if args.sync_bn:
             if args.proc_id == 0:
-                print("Convert model with Sync BatchNorm")
-            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+                    print("Convert model with Sync BatchNorm")
+            if args.model_name == "PersFormer":
+                model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+            elif args.model_name == "GenLaneNet":
+                model1 = nn.SyncBatchNorm.convert_sync_batchnorm(model1)
+                model2 = nn.SyncBatchNorm.convert_sync_batchnorm(model2)
         if not args.no_cuda:
             device = torch.device("cuda", args.local_rank)
-            model = model.to(device)
+            if args.model_name == "PersFormer":
+                model = model.to(device)
+            elif args.model_name == "GenLaneNet":
+                model1 = model1.to(device)
+                model2 = model2.to(device)
+        
         best_file_name = glob.glob(os.path.join(args.save_path, 'model_best*'))[0]
         if os.path.isfile(best_file_name):
+            checkpoint = torch.load(best_file_name)
             if args.proc_id == 0:
                 sys.stdout = Logger(os.path.join(args.save_path, 'Evaluate.txt'))
                 print("=> loading checkpoint '{}'".format(best_file_name))
-                checkpoint = torch.load(best_file_name)
+            if (args.proc_id == 0) and (args.model_name == "PersFormer"):
                 model.load_state_dict(checkpoint['state_dict'])
+            elif args.model_name == "GenLaneNet":
+                pretrained_checkpoint = torch.load(args.pretrained_feat_model)
+                model1 = self.load_my_state_dict(model1, pretrained_checkpoint['state_dict'])
+                model1.eval()  # do not back propagate to model1
+                model2.load_state_dict(checkpoint['state_dict'])
         else:
             print("=> no checkpoint found at '{}'".format(best_file_name))
         dist.barrier()
         # DDP setting
         if args.distributed:
-            model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
-        loss_list, eval_stats = self.validate(model, vis=True)
-        if args.proc_id == 0:
+            if args.model_name == "PersFormer":
+                model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+                loss_list, eval_stats = self.validate(model, None, vis=True)
+            elif args.model_name == "GenLaneNet":
+                model1 = DDP(model1, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+                model2 = DDP(model2, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+                loss_list, eval_stats = self.validate(model1, model2, vis=True)
+        if (args.proc_id == 0) and (eval_stats != None):
             print("===> Average {}-loss on validation set is {:.8f}".format(self.crit_string, loss_list[0].avg))
             print("===> Evaluation laneline F-measure: {:.8f}".format(eval_stats[0]))
             print("===> Evaluation laneline Recall: {:.8f}".format(eval_stats[1]))
@@ -521,9 +655,11 @@ class Runner:
     def _get_train_dataset(self):
         args = self.args
         if 'openlane' in args.dataset_name:
-            train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=True)
+            train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
+        elif 'once' in args.dataset_name:
+            train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train/'), args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
         else:
-            train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True)
+            train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
         
         # train_dataset.normalize_lane_label()
         train_loader, train_sampler = get_loader(train_dataset, args)
@@ -535,9 +671,12 @@ class Runner:
         args = self.args
         if 'openlane' in args.dataset_name:
             if not args.evaluate_case:
-                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'test/up_down_case/', args, seg_bev=args.seg_bev)
+                # valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
             else:
-                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir, args, seg_bev=True)
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir, args, seg_bev=args.seg_bev)
+        elif 'once' in args.dataset_name:
+            valid_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'test/'), args, seg_bev=args.seg_bev)
         else:
             valid_dataset = LaneDataset(args.dataset_dir, self.val_gt_file, args)
 
@@ -550,20 +689,52 @@ class Runner:
 
         return valid_dataset, valid_loader, valid_sampler
 
+    def load_my_state_dict(self, model, state_dict):  # custom function to load model when not all dict elements
+        # multi-gpu
+        if isinstance(model, torch.nn.DataParallel):
+            own_state = model.module.state_dict()
+        else:
+            own_state = model.state_dict()
+        # own_state = model.state_dict()
+        ckpt_name = []
+        cnt = 0
+        for name, param in state_dict.items():
+            # TODO: why the trained model do not have modules in name?
+            if name[7:] not in list(own_state.keys()) or 'output_conv' in name:
+                ckpt_name.append(name)
+                # continue
+            own_state[name[7:]].copy_(param)
+            cnt += 1
+        print('#reused param: {}'.format(cnt))
+        return model
+
     def _get_model_ddp(self):
         args = self.args
         # Define network
-        model = PersFormer(args)
+        if args.model_name == "PersFormer":
+            model = PersFormer(args)
+        elif args.model_name == "GenLaneNet":
+            model1 = erfnet.ERFNet(args.num_class)
+            model2 = GeoNet3D_ext.Net(args, input_dim=args.num_class - 1)
+            define_init_weights(model2, args.weight_init)
 
         if args.sync_bn:
             if args.proc_id == 0:
                 print("Convert model with Sync BatchNorm")
-            model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+            if args.model_name == "PersFormer":
+                model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+            elif args.model_name == "GenLaneNet":
+                model1 = nn.SyncBatchNorm.convert_sync_batchnorm(model1)
+                model2 = nn.SyncBatchNorm.convert_sync_batchnorm(model2)
 
         if not args.no_cuda:
             # Load model on gpu before passing params to optimizer
             device = torch.device("cuda", args.local_rank)
-            model = model.to(device)
+            if args.model_name == "PersFormer":
+                model = model.to(device)
+            elif args.model_name == "GenLaneNet":
+                model1 = model1.to(device)
+                model2 = model2.to(device)
 
         """
             first load param to model, then model = DDP(model)
@@ -582,25 +753,38 @@ class Runner:
             model, best_epoch, lowest_loss, best_f1_epoch, best_val_f1, \
                 optim_saved_state, schedule_saved_state = self.resume_model(args, model)
         elif args.pretrained and args.proc_id == 0:
-            path = 'models/pretrain/model_pretrain.pth.tar'
-            if os.path.isfile(path):
-                checkpoint = torch.load(path)
-                model.load_state_dict(checkpoint['state_dict'])
-                print("Use pretrained model in {} to start training".format(path))
-            else:
-                raise Exception("No pretrained model found in {}".format(path))
+            if args.model_name == "PersFormer":
+                path = 'models/pretrain/model_pretrain.pth.tar'
+                if os.path.isfile(path):
+                    checkpoint = torch.load(path)
+                    model.load_state_dict(checkpoint['state_dict'])
+                    print("Use pretrained model in {} to start training".format(path))
+                else:
+                    raise Exception("No pretrained model found in {}".format(path))
+        elif args.pretrained and args.model_name == "GenLaneNet":
+            checkpoint = torch.load(args.pretrained_feat_model)
+            model1 = self.load_my_state_dict(model1, checkpoint['state_dict'])
+            model1.eval()  # do not back propagate to model1
 
         dist.barrier()
         # DDP setting
         if args.distributed:
-            model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+            if args.model_name == "PersFormer":
+                model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+            elif args.model_name == "GenLaneNet":
+                model1 = DDP(model1, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
+                model2 = DDP(model2, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True)
 
         # Define optimizer and scheduler
         '''
             Define optimizer after DDP init
         '''
-        optimizer = define_optim(args.optimizer, model.parameters(),
-                                args.learning_rate, args.weight_decay)
+        if args.model_name == "PersFormer":
+            optimizer = define_optim(args.optimizer, model.parameters(),
+                                    args.learning_rate, args.weight_decay)
+        elif args.model_name == "GenLaneNet":
+            optimizer = define_optim(args.optimizer, model2.parameters(),
+                                    args.learning_rate, args.weight_decay)
         scheduler = define_scheduler(optimizer, args)
 
         # resume optimizer and scheduler
@@ -611,7 +795,10 @@ class Runner:
             print("proc_id-{} load scheduler state".format(args.proc_id))
             scheduler.load_state_dict(schedule_saved_state)
 
-        return model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
+        if args.model_name == "PersFormer":
+            return model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
+        elif args.model_name == "GenLaneNet":
+            return model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
 
     def resume_model(self, args, model):
         path = os.path.join(args.save_path, 'checkpoint_model_epoch_{}.pth.tar'.format(int(args.resume)))
@@ -801,6 +988,60 @@ class Runner:
             lane_lines.append({'xyz': lanelines_pred[k],
                                'category': int(np.argmax(lanelines_prob[k]))})
         result['lane_lines'] = lane_lines
+
+        with open(result_file_path, 'w') as result_file:
+            json.dump(result, result_file)
+
+    def save_eval_result_once(self, args, img_path, lanelines_pred, lanelines_prob):
+        # 3d eval result
+        result = {}
+        result_dir = os.path.join(args.save_path, 'once_pred/')
+        mkdir_if_missing(result_dir)
+        result_dir = os.path.join(result_dir, 'test/')
+        mkdir_if_missing(result_dir)
+        file_path_splited = img_path.split('/')
+        result_dir = os.path.join(result_dir, file_path_splited[-3]) # sequence
+        mkdir_if_missing(result_dir)
+        result_dir = os.path.join(result_dir, 'cam01/')
+        mkdir_if_missing(result_dir)
+        result_file_path = ops.join(result_dir, file_path_splited[-1][:-4]+'.json')
+
+        cam_pitch = 0.5/180*np.pi
+        cam_height = 1.5
+        cam_extrinsics = np.array([[np.cos(cam_pitch), 0, -np.sin(cam_pitch), 0],
+                                    [0, 1, 0, 0],
+                                    [np.sin(cam_pitch), 0,  np.cos(cam_pitch), cam_height],
+                                    [0, 0, 0, 1]], dtype=float)
+        R_vg = np.array([[0, 1, 0],
+                            [-1, 0, 0],
+                            [0, 0, 1]], dtype=float)
+        R_gc = np.array([[1, 0, 0],
+                            [0, 0, 1],
+                            [0, -1, 0]], dtype=float)
+        cam_extrinsics[:3, :3] = np.matmul(np.matmul(
+                                    np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
+                                        R_vg), R_gc)
+        cam_extrinsics[0:2, 3] = 0.0
+
+        # write lane result
+        lane_lines = []
+        for k in range(len(lanelines_pred)):
+            # if np.max(lanelines_prob[k]) < 0.5: #TODO
+            #     continue
+            lane = np.array(lanelines_pred[k])
+            lane = np.flip(lane, axis=0)
+            lane = lane.T
+            lane = np.vstack((lane, np.ones((1, lane.shape[1]))))
+            lane = np.matmul(np.linalg.inv(cam_extrinsics), lane)
+            lane = lane[0:3,:].T
+            # x = lane[:,0]
+            # y = lane[:,2] + 1.8
+            # z = lane[:,1]
+            # lane = np.stack([x,y,z],0).T
+            # lane_lines.append(lane.tolist())
+            lane_lines.append({'points': lane.tolist(),
+                               'score': np.max(lanelines_prob[k])})
+        result['lanes'] = lane_lines
 
         with open(result_file_path, 'w') as result_file:
             json.dump(result, result_file)

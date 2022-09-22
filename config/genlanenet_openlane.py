@@ -19,7 +19,7 @@ import os
 import os.path as ops
 
 def config(args):
-    args.model_name = 'PersFormer'
+    args.model_name = 'GenLaneNet'
     # 300 sequence
     # args.dataset_name = 'openlane'
     # args.dataset_dir = '/mnt/disk01/openlane/images/'
@@ -47,78 +47,67 @@ def config(args):
     args.save_freq = 50
 
     # data loader
-    args.nworkers = 4
+    args.nworkers = 0
+    args.use_default_anchor = True
 
     # run the training
     # args.mod = 'debug'
     # args.nepochs = 1
 
-    # Define the network model
-    # change encoder, "EfficientNet-B7"
-    args.encoder = "EfficientNet-B7"
+    # # Define the network model
+    # # change encoder, "EfficientNet-B7"
+    # args.encoder = "EfficientNet-B7"
 
     # init
     # args.weight_init = 'xavier'
     # init with pre-trained model weights when training
-    args.pretrained = False
+    args.pretrained = True
+    args.pretrained_feat_model = 'pretrained/erfnet_model_sim3d.tar'
     # apply batch norm in network
     args.batch_norm = True
 
-    # attention
-    args.position_embedding = 'learned'
-    args.use_proj = True
-    args.num_proj = 4
-    args.use_att = True
-    args.num_att = 3
-    args.use_top_pathway = False
-    args.npoints = 8
-    args.nhead = 8
-    args.use_fpn = False
-
-    # grad clip
-    args.clip_grad_norm = 35.0
+    # # grad clip
+    args.clip_grad_norm = 0
     args.loss_threshold = 1e5
 
-    # scheduler
-    args.lr_policy = "cosine"
-    args.T_max = 8
-    args.eta_min = 1e-5
+    # # scheduler
+    # args.lr_policy = "cosine"
+    # args.T_max = 8
+    # args.eta_min = 1e-5
 
-    # optimizer
-    args.optimizer = 'adam'
-    args.learning_rate = 2e-4
-    args.weight_decay = 0.001
+    # # optimizer
+    # args.optimizer = 'adam'
+    # args.learning_rate = 2e-4
+    # args.weight_decay = 0
 
-    # 2d loss, used if not learnable_weight_on
-    args.loss_att_weight = 100.0
+    # # 3d loss, vis | prob | reg, default 1.0 | 1.0 | 1.0,  suggest 10.0 | 4.0 | 1.0
+    # # used if not learnable_weight_on
+    # args.loss_dist = [10.0, 4.0, 1.0]
+    args.crit_string = 'loss_gflat_novis'
+    args.loss_dist = [1.0, 1.0, 1.0]
 
-    # 3d loss, vis | prob | reg, default 1.0 | 1.0 | 1.0,  suggest 10.0 | 4.0 | 1.0
-    # used if not learnable_weight_on
-    args.crit_string = 'loss_gflat'
-    args.loss_dist = [10.0, 4.0, 1.0]
+    # # learnable weight
+    # # in best model setting, they are 10, 4, 1, 100, 100, 100, 10
+    # # factor = 1 / exp(weight)
+    # args.learnable_weight_on = True
+    # args._3d_vis_loss_weight = 0.0 # -2.3026
+    # args._3d_prob_loss_weight = 0.0 # -1.3863
+    # args._3d_reg_loss_weight = 0.0
+    # args._2d_vis_loss_weight = 0.0 # -4.6052
+    # args._2d_prob_loss_weight = 0.0 # -4.6052
+    # args._2d_reg_loss_weight = 0.0 # -4.6052
+    # args._seg_loss_weight = 0.0 # -2.3026
 
-    # learnable weight
-    # in best model setting, they are 10, 4, 1, 100, 100, 100, 10
-    # factor = 1 / exp(weight)
-    args.learnable_weight_on = True
-    args._3d_vis_loss_weight = 0.0 # -2.3026
-    args._3d_prob_loss_weight = 0.0 # -1.3863
-    args._3d_reg_loss_weight = 0.0
-    args._2d_vis_loss_weight = 0.0 # -4.6052
-    args._2d_prob_loss_weight = 0.0 # -4.6052
-    args._2d_reg_loss_weight = 0.0 # -4.6052
-    args._seg_loss_weight = 0.0 # -2.3026
-
-    # segmentation setting
-    args.seg_bev = True
+    # # segmentation setting
+    args.seg_bev = False
     args.lane_width = 2
-    args.loss_seg_weight = 0.0
-    args.seg_start_epoch = 1
+    # args.loss_seg_weight = 0.0
+    # args.seg_start_epoch = 1
 
-    # ipm related
-    args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
-    args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
-    args.num_y_steps = len(args.anchor_y_steps)
+    # # ipm related
+    # args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
+    # args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
+    # args.num_y_steps = len(args.anchor_y_steps)
 
     # ddp related
     args.dist = True

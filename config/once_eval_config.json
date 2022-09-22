@@ -1,0 +1,1 @@
+{"side_range_l": -10, "side_range_h": 10, "fwd_range_l": 0, "fwd_range_h": 50, "height_range_l": 0, "height_range_h": 5, "res": 0.05, "lane_width_x": 30, "lane_width_y": 10, "iou_thresh": 0.3, "distance_thresh": 0.3, "process_num": 10, "score_l": 0.10, "score_h": 1, "score_step": 0.05, "exp_name": "evaluation"}
