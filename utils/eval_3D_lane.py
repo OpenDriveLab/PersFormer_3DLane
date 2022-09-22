@@ -35,6 +35,7 @@ Evaluation metrics includes:
     z error far (0 - 100 m)
 """
 
+from copy import deepcopy
 import numpy as np
 from utils.utils import *
 from utils.MinCostFlow import SolveMinCostFlow
@@ -71,6 +72,7 @@ class LaneEval(object):
         :param gt_cam_pitch: camera pitch given in ground-truth data
         :return:
         """
+        
         # change this properly
         close_range_idx = np.where(self.y_samples > self.close_range)[0][0]
 
@@ -79,6 +81,13 @@ class LaneEval(object):
         x_error_far = []
         z_error_close = []
         z_error_far = []
+
+        # only keep the visible portion
+        gt_lanes = [prune_3d_lane_by_visibility(np.array(gt_lane), np.array(gt_visibility[k])) for k, gt_lane in
+                    enumerate(gt_lanes)]
+        if 'openlane' in self.dataset_name:
+            gt_category = [gt_category[k] for k, lane in enumerate(gt_lanes) if lane.shape[0] > 1]
+        gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
 
         # # only consider those pred lanes overlapping with sampling range
         pred_category = [pred_category[k] for k, lane in enumerate(pred_lanes)
@@ -331,7 +340,6 @@ class LaneEval(object):
             
             P_g2im = projection_g2im_extrinsic(cam_extrinsics, cam_intrinsics)
 
-
             # N to N matching of lanelines
             r_lane, p_lane, c_lane, cnt_gt, cnt_pred, match_num, \
             x_error_close, x_error_far, \
@@ -400,7 +408,7 @@ class LaneEval(object):
         return output_stats
 
     # compare predicted set and ground-truth set using a fixed lane probability threshold
-    def bench_one_submit_openlane_DDP(self, pred_lines_sub, gt_lines_sub, prob_th=0.5, vis=False):
+    def bench_one_submit_openlane_DDP(self, pred_lines_sub, gt_lines_sub, model_name, prob_th=0.5, vis=False):
         json_gt = gt_lines_sub
         json_pred = pred_lines_sub
 
@@ -422,13 +430,19 @@ class LaneEval(object):
 
             pred_lanes = pred['laneLines']
             pred_lanes_prob = pred['laneLines_prob']
+            if model_name == "GenLaneNet":
+                pred_lanes = [pred_lanes[ii] for ii in range(len(pred_lanes_prob)) if
+                              pred_lanes_prob[ii] > prob_th]
+                pred_category = np.zeros(len(pred_lanes_prob))
             # Note: non-lane class is already filtered out in compute_3d_lanes_all_category()
-            pred_lanes = [pred_lanes[ii] for ii in range(len(pred_lanes_prob)) if max(pred_lanes_prob[ii]) > prob_th]
-            pred_lanes_prob = [prob for k, prob in enumerate(pred_lanes_prob) if max(prob) > prob_th]
-            if pred_lanes_prob:
-                pred_category = np.argmax(pred_lanes_prob, 1)
+            # import pdb; pdb.set_trace()
             else:
-                pred_category = []
+                pred_lanes = [pred_lanes[ii] for ii in range(len(pred_lanes_prob)) if max(pred_lanes_prob[ii]) > prob_th]
+                pred_lanes_prob = [prob for k, prob in enumerate(pred_lanes_prob) if max(prob) > prob_th]
+                if pred_lanes_prob:
+                    pred_category = np.argmax(pred_lanes_prob, 1)
+                else:
+                    pred_category = []
 
             if raw_file not in gts:
                 raise Exception('Some raw_file from your predictions do not exist in the test tasks.')
@@ -532,7 +546,7 @@ class LaneEval(object):
             C_lane = np.sum(laneline_stats[:, 2]) / (np.sum(laneline_stats[:, 5]))
         else:
             C_lane = np.sum(laneline_stats[:, 2]) / (np.sum(laneline_stats[:, 5]) + 1e-6)   # category_accuracy
-        if R_lane + P_lane != 0:
+        if (R_lane + P_lane) != 0:
             F_lane = 2 * R_lane * P_lane / (R_lane + P_lane)
         else:
             F_lane = 2 * R_lane * P_lane / (R_lane + P_lane + 1e-6)
