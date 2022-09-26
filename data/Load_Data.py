@@ -628,7 +628,6 @@ class LaneDataset(Dataset):
         gt_lanes = [lane for lane in gt_lanes if lane.shape[0] > 1]
 
         # convert 3d lanes to flat ground space
-        import pdb; pdb.set_trace()
         self.convert_lanes_3d_to_gflat(gt_lanes, P_g2gflat)
 
         gt_anchors = []
@@ -1427,7 +1426,6 @@ class LaneDataset(Dataset):
                 cam_K = cam_intrinsics_all[idx]
                 if 'openlane' in self.dataset_name:
                     cam_E = cam_extrinsics_all[idx]
-                    import pdb; pdb.set_trace()
                     P_g2im = projection_g2im_extrinsic(cam_E, cam_K)
                     H_g2im = homograpthy_g2im_extrinsic(cam_E, cam_K)
                 else:
