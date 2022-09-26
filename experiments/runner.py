@@ -548,7 +548,7 @@ class Runner:
             if 'openlane' in args.dataset_name:
                 eval_stats = self.evaluator.bench_one_submit_openlane_DDP(pred_lines_sub, gt_lines_sub, args.model_name, vis=False)
             elif 'once' in args.dataset_name:
-                eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/Persformer/once_pred/test', args.eval_config_dir)
+                eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/Persformer/once_pred/test', args.eval_config_dir, args)
             else:
                 eval_stats = self.evaluator.bench_one_submit(pred_lines_sub, gt_lines_sub, vis=False)
 
