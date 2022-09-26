@@ -96,7 +96,7 @@ class LaneEval:
             distance_error=distance_mean,
         )
 
-    def lane_evaluation(self, gt_root_path, pred_root_path, config_path):
+    def lane_evaluation(self, gt_root_path, pred_root_path, config_path, args):
         gt_files_list, pred_files_list = self.file_parser(gt_root_path, pred_root_path)
         with open(config_path, 'r') as file:
             file_lines = [line for line in file]
@@ -165,7 +165,8 @@ class LaneEval:
                         recall[index],
                         distance_error[index]
                         ])
-        print(pt)
+        if args.proc_id == 0:
+            print(pt)
         result_dir = os.path.join(os.path.dirname(__file__), 'eval_results')
         os.makedirs(result_dir, exist_ok=True)
         result_file_name = config['exp_name']
