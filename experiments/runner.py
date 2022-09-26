@@ -479,21 +479,21 @@ class Runner:
                         with open(json_file, 'r') as file:
                             file_lines = [line for line in file]
                             json_line = json.loads(file_lines[0])
-                    if args.dataset_name == 'openlane':
-                            img_path = json_line["file_path"]
+                        if args.dataset_name == 'openlane':
+                                img_path = json_line["file_path"]
+                                img_name = os.path.basename(img_path)
+                                img_name_all.append(img_name)
+                        elif args.dataset_name == 'once':
+                            if 'once' in args.dataset_name:
+                                if 'train' in json_file:
+                                    img_path = json_file.replace('train', 'data').replace('.json', '.jpg')
+                                elif 'val' in json_file:
+                                    img_path = json_file.replace('val', 'data').replace('.json', '.jpg')
+                                elif 'test' in json_file:
+                                    img_path = json_file.replace('test', 'data').replace('.json', '.jpg')
+                                json_line["file_path"] = img_path
                             img_name = os.path.basename(img_path)
                             img_name_all.append(img_name)
-                    elif args.dataset_name == 'once':
-                        if 'once' in args.dataset_name:
-                            if 'train' in json_file:
-                                img_path = json_file.replace('train', 'data').replace('.json', '.jpg')
-                            elif 'val' in json_file:
-                                img_path = json_file.replace('val', 'data').replace('.json', '.jpg')
-                            elif 'test' in json_file:
-                                img_path = json_file.replace('test', 'data').replace('.json', '.jpg')
-                            json_line["file_path"] = img_path
-                        img_name = os.path.basename(img_path)
-                        img_name_all.append(img_name)
 
                     # For the purpose of vis positive anchors
                     if vis and (i + 1) % args.save_freq == 0:
