@@ -26,54 +26,71 @@ def config(args):
     # args.data_dir = '/mnt/disk01/openlane/lane3d_300/'
 
     # 1000 sequence
-    args.dataset_name = 'openlane'
-    args.dataset_dir = '/mnt/disk01/openlane/images/'
-    args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
+    # args.dataset_name = 'openlane'
+    # args.dataset_dir = '/mnt/disk01/openlane/images/'
+    # args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
+
+    # ONCE
+    args.dataset_name = 'once'
+    args.dataset_dir = '/mnt/disk02/ONCE_3DLanes/data/'
+    args.data_dir = '/mnt/disk02/ONCE_3DLanes/'
+    args.eval_config_dir = './config/once_eval_config.json'
 
     if 'openlane' in args.dataset_name:
         openlane_config(args)
+    elif 'once' in args.dataset_name:
+        once_config(args)
     else:
         sim3d_config(args)
 
     args.save_prefix = ops.join(os.getcwd(), 'data_splits')
     args.save_path = ops.join(args.save_prefix, args.dataset_name)
 
+    # load configuration for certain dataset
+    args.prob_th = 0.5
+
+    # define the network model
+    args.num_class = 2  # 1 background + n lane labels
+    # args.mod = 'debug'
+    args.y_ref = 5  # new anchor prefer closer range gt assign
+
     # for the case only running evaluation
-    args.evaluate = False
+    args.evaluate = True
     args.evaluate_case = False
 
     # settings for save and visualize
     args.print_freq = 50
     args.save_freq = 50
 
-    # data loader
-    args.nworkers = 4
-
-    # run the training
-    # args.mod = 'debug'
     # args.nepochs = 1
+    # run the training
 
-    # Define the network model
     # change encoder, "EfficientNet-B7"
     args.encoder = "EfficientNet-B7"
+    
+    # ddp related
+    args.dist = True
+    args.sync_bn = True
 
-    # init
-    # args.weight_init = 'xavier'
-    # init with pre-trained model weights when training
-    args.pretrained = False
-    # apply batch norm in network
-    args.batch_norm = True
+    args.cudnn = True
+    args.port = 29425
+
+    # ddp init
+    args.use_slurm = False
 
     # attention
     args.position_embedding = 'learned'
+    args.use_att = True
     args.use_proj = True
     args.num_proj = 4
-    args.use_att = True
     args.num_att = 3
     args.use_top_pathway = False
     args.npoints = 8
     args.nhead = 8
     args.use_fpn = False
+
+    # data loader
+    args.nworkers = 4
 
     # grad clip
     args.clip_grad_norm = 35.0
@@ -97,6 +114,18 @@ def config(args):
     args.crit_string = 'loss_gflat'
     args.loss_dist = [10.0, 4.0, 1.0]
 
+    # config
+    args.use_el = True
+
+    # init
+    # args.weight_init = 'xavier'
+    
+    # segmentation setting
+    args.seg_bev = True
+    args.lane_width = 2
+    args.loss_seg_weight = 0.0
+    args.seg_start_epoch = 1
+
     # learnable weight
     # in best model setting, they are 10, 4, 1, 100, 100, 100, 10
     # factor = 1 / exp(weight)
@@ -109,26 +138,10 @@ def config(args):
     args._2d_reg_loss_weight = 0.0 # -4.6052
     args._seg_loss_weight = 0.0 # -2.3026
 
-    # segmentation setting
-    args.seg_bev = True
-    args.lane_width = 2
-    args.loss_seg_weight = 0.0
-    args.seg_start_epoch = 1
-
     # ipm related
     args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
     args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
     args.num_y_steps = len(args.anchor_y_steps)
-
-    # ddp related
-    args.dist = True
-    args.sync_bn = True
-
-    args.cudnn = True
-    args.port = 29666
-
-    # ddp init
-    args.use_slurm = False
 
     # memcache
     args.use_memcache = False
@@ -162,10 +175,10 @@ def sim3d_config(args):
     args.max_lanes = 6
     args.num_category = 2
 
-    args.prob_th = 0.5
-    args.num_class = 2  # 1 background + n lane labels
-    args.y_ref = 5  # new anchor prefer closer range gt assign
-
+    # initialize with pre-trained vgg weights
+    args.pretrained = False
+    # apply batch norm in network
+    args.batch_norm = True
 
 
 def openlane_config(args):
@@ -192,6 +205,43 @@ def openlane_config(args):
     args.max_lanes = 20
     args.num_category = 21
 
-    args.prob_th = 0.5
-    args.num_class = 2  # 1 background + n lane labels
-    args.y_ref = 5  # new anchor prefer closer range gt assign
+    # initialize with pre-trained weights
+    args.pretrained = True
+    # apply batch norm in network
+    args.batch_norm = True
+
+def once_config(args):
+    # set dataset parameters
+    args.org_h = 1020
+    args.org_w = 1920
+    args.crop_y = 0
+    args.no_centerline = True
+    args.no_3d = False
+    args.fix_cam = False
+    args.pred_cam = False
+
+    # Placeholder, shouldn't be used
+    args.K = np.array([[958.3320922851562, -0.1807, 934.5001074545908], 
+                        [0.0, 961.3646850585938, 518.6117222564244], 
+                        [0.0, 0.0, 1.0]])
+    args.pitch = 0.5
+    args.cam_height = 1.5
+
+    # [[-0.9999534974732871, -0.009643464521598512, 8.051683924663496e-05, -0.1361792713644952], 
+    #  [-1.2307778763168131e-09, -0.008348949911626491, -0.9999651469103177, -0.37258354515466463], 
+    #  [0.009643800648122605, -0.9999186460044607, 0.008348561652491204, -0.30314162226999714], 
+    #  [0.0, 0.0, 0.0, 1.0]]
+
+    # specify model settings
+    args.top_view_region = np.array([[-10, 103], [10, 103], [-10, 3], [10, 3]])
+    args.anchor_y_steps = np.array([5, 10, 15, 20, 30, 40, 50, 60, 80, 100])
+    args.num_y_steps = len(args.anchor_y_steps)
+
+    # TODO: constrain max lanes in gt
+    args.max_lanes = 20
+    args.num_category = 21
+
+    # initialize with pre-trained vgg weights
+    args.pretrained = False
+    # apply batch norm in network
+    args.batch_norm = True

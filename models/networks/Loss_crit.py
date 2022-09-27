@@ -219,7 +219,7 @@ class Laneline_loss_gflat_multiclass(nn.Module):
             self.anchor_dim = 3*self.num_y_steps + num_category
         self.pred_cam = pred_cam
         
-    def forward(self, pred_3D_lanes, gt_3D_lanes, pred_hcam, gt_hcam, pred_pitch, gt_pitch):
+    def forward(self, pred_3D_lanes, gt_3D_lanes, pred_hcam=None, gt_hcam=None, pred_pitch=None, gt_pitch=None):
         """
 
         :param pred_3D_lanes: predicted tensor with size N x (ipm_w/8) x 3*(2*K+1)
@@ -330,7 +330,7 @@ class Laneline_loss_gflat_novis_withdict(nn.Module):
         self.anchor_dim = 3*self.num_y_steps + 1
         self.pred_cam = pred_cam
 
-    def forward(self, pred_3D_lanes, gt_3D_lanes, pred_hcam, gt_hcam, pred_pitch, gt_pitch):
+    def forward(self, pred_3D_lanes, gt_3D_lanes, pred_hcam=None, gt_hcam=None, pred_pitch=None, gt_pitch=None):
         """
 
         :param pred_3D_lanes: predicted tensor with size N x (ipm_w/8) x 3*(2*K+1)

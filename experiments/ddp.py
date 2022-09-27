@@ -66,7 +66,7 @@ def setup_distributed(args):
 
 def ddp_init(args):
     args.proc_id, args.gpu, args.world_size = 0, 0, 1
-
+    
     if args.use_slurm == True:
         setup_slurm(args)
     else:
