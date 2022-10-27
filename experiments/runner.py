@@ -48,8 +48,8 @@ class Runner:
         if args.proc_id == 0:
             if not args.no_cuda and not torch.cuda.is_available():
                 raise Exception("No gpu available for usage")
-            if torch.cuda.device_count() >= 1:
-                print("Let's use", torch.cuda.device_count(), "GPUs!")
+            if int(os.getenv('WORLD_SIZE', 1)) >= 1:
+                print("Let's use", os.environ['WORLD_SIZE'], "GPUs!")
                 torch.cuda.empty_cache()
 
         save_id = args.mod

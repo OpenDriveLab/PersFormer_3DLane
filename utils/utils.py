@@ -127,6 +127,7 @@ def define_args():
     parser.add_argument("--local_rank", type=int)
     parser.add_argument('--gpu', type=int, default = 0)
     parser.add_argument('--world_size', type=int, default = 1)
+    parser.add_argument('--nodes', type=int, default = 1)
     return parser
 
 
