@@ -24,7 +24,7 @@ import random
 
 def setup_dist_launch(args):
     args.proc_id = args.local_rank
-    world_size = torch.cuda.device_count()
+    world_size = int(os.getenv('WORLD_SIZE', 1))*args.nodes
     print("proc_id: " + str(args.proc_id))
     print("world size: " + str(world_size))
     print("local_rank: " + str(args.local_rank))
