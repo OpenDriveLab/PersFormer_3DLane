@@ -671,10 +671,11 @@ class Runner:
         args = self.args
         if 'openlane' in args.dataset_name:
             if not args.evaluate_case:
-                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'test/up_down_case/', args, seg_bev=args.seg_bev)
-                # valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
             else:
-                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir, args, seg_bev=args.seg_bev)
+                # note: for case eval, change the 'up_down_case' to one of case names.['up_down_case','curve_case','extreme_weather_case','intersection_case','merge_split_case','night_case']  
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'test/up_down_case/', args, seg_bev=args.seg_bev)
+
         elif 'once' in args.dataset_name:
             valid_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'test/'), args, seg_bev=args.seg_bev)
         else:
