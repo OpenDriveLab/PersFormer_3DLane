@@ -51,10 +51,10 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   - 3D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane).
   
 | Method     | All  | Up &<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |  Best model |
-| :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|  -  |
-| GenLaneNet | 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |  -  |  
-| 3DLaneNet  | 44.1 | 40.8 | 46.5 | 47.5 | 41.5 | 32.1 | 41.7 |  -  |
-|**PersFormer**|**50.5**|**42.4**|**55.6**|**48.6**|**46.6**|**40.0**|**50.7**| [model](https://drive.google.com/file/d/1TwjmFB3p3luCG8ytZ4MEI-TMoDT2Vn3G/view?usp=share_link) |  
+| :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
+| GenLaneNet | 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |    -    |  
+| 3DLaneNet  | 44.1 | 40.8 | 46.5 | 47.5 | 41.5 | 32.1 | 41.7 |    -    |
+|**PersFormer**|**50.5**|**42.4**|**55.6**|**48.6**|**46.6**|**40.0**|**50.7**|      [model](https://drive.google.com/file/d/1TwjmFB3p3luCG8ytZ4MEI-TMoDT2Vn3G/view?usp=share_link)  |  
   
   - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is **LaneATT**.
   
@@ -69,12 +69,12 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   
   - 3D Lane Detection Results in [ONCE_3DLanes](https://github.com/once-3dlanes/once_3dlanes_benchmark).
   
-| Method     | F1(%)  | Precision(%) | Recall(%) | CD error(m) |  
-| :----:     |:----:|:----:|:----:|:----:|  
-| 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 |  
-| GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  
-| SALAD ([paper](https://arxiv.org/pdf/2205.00301.pdf) of ONCE 3DLanes )     | 64.07 | 75.90 | 55.42 | 0.098 |  
-|**PersFormer**|**74.33**|**80.30**|**69.18**|**0.074**|  
+| Method     | F1(%)  | Precision(%) | Recall(%) | CD error(m) |  Best model |
+| :----:     |:----:|:----:|:----:|:----:|:----:|    
+| 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 | - | 
+| GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  - | 
+| SALAD ([paper](https://arxiv.org/pdf/2205.00301.pdf) of ONCE 3DLanes )     | 64.07 | 75.90 | 55.42 | 0.098 | - | 
+|**PersFormer**|**72.07**|**77.82**|**67.11**|**0.086**|  [model](https://drive.google.com/file/d/1jtDfnxcNNbefgpYGfue1XlvcvtmfPZj7/view?usp=share_link)| 
   
 
 ## Visualization
