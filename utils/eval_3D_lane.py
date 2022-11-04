@@ -191,24 +191,24 @@ class LaneEval(object):
 
                 # use the both visible portion to calculate distance error
                 if np.sum(both_visible_indices[:close_range_idx]) > 0:
-                    x_dist_mat_close[i, j] = (np.sum(
-                        x_dist[:close_range_idx] * both_visible_indices[:close_range_idx]) + np.sum(other_indices[:close_range_idx])) / (np.sum(
-                        both_visible_indices[:close_range_idx]) + np.sum(other_indices[:close_range_idx]))
-                    z_dist_mat_close[i, j] = (np.sum(
-                        z_dist[:close_range_idx] * both_visible_indices[:close_range_idx]) + np.sum(other_indices[:close_range_idx])) / (np.sum(
-                        both_visible_indices[:close_range_idx]) + np.sum(other_indices[:close_range_idx]))
+                    x_dist_mat_close[i, j] = np.sum(
+                        x_dist[:close_range_idx] * both_visible_indices[:close_range_idx]) / np.sum(
+                        both_visible_indices[:close_range_idx])
+                    z_dist_mat_close[i, j] = np.sum(
+                        z_dist[:close_range_idx] * both_visible_indices[:close_range_idx]) / np.sum(
+                        both_visible_indices[:close_range_idx])
                 else:
                     x_dist_mat_close[i, j] = -1
                     z_dist_mat_close[i, j] = -1
                     
 
                 if np.sum(both_visible_indices[close_range_idx:]) > 0:
-                    x_dist_mat_far[i, j] = (np.sum(
-                        x_dist[close_range_idx:] * both_visible_indices[close_range_idx:]) + np.sum(other_indices[close_range_idx:])) / (np.sum(
-                        both_visible_indices[close_range_idx:]) + np.sum(other_indices[close_range_idx:]))
-                    z_dist_mat_far[i, j] = (np.sum(
-                        z_dist[close_range_idx:] * both_visible_indices[close_range_idx:]) + np.sum(other_indices[close_range_idx:])) / (np.sum(
-                        both_visible_indices[close_range_idx:]) + np.sum(other_indices[close_range_idx:]))
+                    x_dist_mat_far[i, j] = np.sum(
+                        x_dist[close_range_idx:] * both_visible_indices[close_range_idx:]) / np.sum(
+                        both_visible_indices[close_range_idx:])
+                    z_dist_mat_far[i, j] = np.sum(
+                        z_dist[close_range_idx:] * both_visible_indices[close_range_idx:]) / np.sum(
+                        both_visible_indices[close_range_idx:])
                 else:
                     x_dist_mat_far[i, j] = -1
                     z_dist_mat_far[i, j] = -1
