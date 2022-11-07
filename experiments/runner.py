@@ -548,7 +548,7 @@ class Runner:
             if 'openlane' in args.dataset_name:
                 eval_stats = self.evaluator.bench_one_submit_openlane_DDP(pred_lines_sub, gt_lines_sub, args.model_name, vis=False)
             elif 'once' in args.dataset_name:
-                eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/PersFormer/once_pred/test', args.eval_config_dir, args)
+                eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/Persformer/once_pred/test', args.eval_config_dir, args)
             else:
                 eval_stats = self.evaluator.bench_one_submit(pred_lines_sub, gt_lines_sub, vis=False)
 
@@ -615,7 +615,8 @@ class Runner:
             elif args.model_name == "GenLaneNet":
                 model1 = model1.to(device)
                 model2 = model2.to(device)
-        
+        print("path is : ")
+        print(os.path.join(args.save_path, 'model_best*'))
         best_file_name = glob.glob(os.path.join(args.save_path, 'model_best*'))[0]
         if os.path.isfile(best_file_name):
             checkpoint = torch.load(best_file_name)
@@ -671,11 +672,10 @@ class Runner:
         args = self.args
         if 'openlane' in args.dataset_name:
             if not args.evaluate_case:
-                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
-            else:
-                # note: for case eval, change the 'up_down_case' to one of case names.['up_down_case','curve_case','extreme_weather_case','intersection_case','merge_split_case','night_case']  
                 valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'test/up_down_case/', args, seg_bev=args.seg_bev)
-
+                # valid_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'validation/', args, seg_bev=True)
+            else:
+                valid_dataset = LaneDataset(args.dataset_dir, args.data_dir, args, seg_bev=args.seg_bev)
         elif 'once' in args.dataset_name:
             valid_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'test/'), args, seg_bev=args.seg_bev)
         else:

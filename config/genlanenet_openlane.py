@@ -21,14 +21,14 @@ import os.path as ops
 def config(args):
     args.model_name = 'GenLaneNet'
     # 300 sequence
-    # args.dataset_name = 'openlane'
-    # args.dataset_dir = '/mnt/disk01/openlane/images/'
-    # args.data_dir = '/mnt/disk01/openlane/lane3d_300/'
+    args.dataset_name = 'openlane'
+    args.dataset_dir = '/home/rq/dataset/OpenLane/images/'
+    args.data_dir = '/home/rq/dataset/OpenLane/lane3d_300/'
 
     # 1000 sequence
-    args.dataset_name = 'openlane'
-    args.dataset_dir = '/mnt/disk01/openlane/images/'
-    args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
+    # args.dataset_name = 'openlane'
+    # args.dataset_dir = '/mnt/disk01/openlane/images/'
+    # args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
 
     if 'openlane' in args.dataset_name:
         openlane_config(args)
@@ -47,7 +47,7 @@ def config(args):
     args.save_freq = 50
 
     # data loader
-    args.nworkers = 0
+    args.nworkers = 4
     args.use_default_anchor = True
 
     # run the training

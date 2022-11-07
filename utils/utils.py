@@ -87,9 +87,9 @@ def define_args():
     parser.add_argument('--vis_th', type=float, default=0.1, help='visibility threshold for output 2D lanes')
     parser.add_argument('--loss_att_weight', type=float, default=100.0, help='2D lane losses weight w.r.t. 3D lane losses')
     # General model settings
-    parser.add_argument('--batch_size', type=int, default=16, help='batch size')
-    parser.add_argument('--nepochs', type=int, default=100, help='total numbers of epochs')
-    parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning rate')
+    parser.add_argument('--batch_size', type=int, default=4, help='batch size')
+    parser.add_argument('--nepochs', type=int, default=10, help='total numbers of epochs')
+    parser.add_argument('--learning_rate', type=float, default=5e-5, help='learning rate')
     parser.add_argument('--no_cuda', action='store_true', help='if gpu available')
     parser.add_argument('--nworkers', type=int, default=0, help='num of threads')
     parser.add_argument('--seg_start_epoch', type=int, default=1, help='Number of epochs to perform segmentation pretraining')

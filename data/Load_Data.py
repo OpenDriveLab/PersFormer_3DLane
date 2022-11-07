@@ -850,7 +850,7 @@ class LaneDataset(Dataset):
             for j in range(len(x_2d) - 1):
                 seg_label = cv2.line(seg_label,
                                      (int(x_2d[j]), int(y_2d[j])), (int(x_2d[j+1]), int(y_2d[j+1])),
-                                     color=np.asscalar(np.array([1])))
+                                     color=np.ndarray.item(np.array([1])))
         seg_label = torch.from_numpy(seg_label.astype(np.float32))
         seg_label.unsqueeze_(0)
 
@@ -2405,7 +2405,7 @@ class LaneDataset(Dataset):
             lanes.append(Lane(points=points))
         return lanes
 
-    def draw_on_ipm_seg_bev(self, im_ipm, lane_anchor, draw_type='laneline', color=np.asscalar(np.array([1])), width=1):
+    def draw_on_ipm_seg_bev(self, im_ipm, lane_anchor, draw_type='laneline', color=np.ndarray.item(np.array([1])), width=1):
         for j in range(lane_anchor.shape[0]):
             # draw laneline
             # if draw_type is 'laneline' and lane_anchor[j, self.anchor_dim - 1] > self.prob_th:
