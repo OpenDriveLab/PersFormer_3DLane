@@ -31,7 +31,7 @@ def main():
     ddp_init(args)
     # define runner to begin training or evaluation
     runner = Runner(args)
-    args.evaluate = True
+
     if not args.evaluate:
         runner.train()
     else:
