@@ -52,7 +52,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   
 | Method     |Version| All  | Up &<br>Down | Curve | Extreme<br>Weather | Night | Intersection | Merge&<br>Split |  Best model |x-c|x-f|z-c|z-f|Category Accuracy|
 | :----:     |:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
-| GenLaneNet |1.1| 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |    [model](https://docs.google.com/forms/d/e/1FAIpQLScLRUvr14taMIZzGZs7ZDRIOchPQQ50rdIWyipQeRl2bsO9dQ/viewform?usp=sharing)    |0.59294| 0.494231|0.139849|0.1952|-|
+| GenLaneNet |1.1| 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |    [model](https://docs.google.com/forms/d/e/1FAIpQLScLRUvr14taMIZzGZs7ZDRIOchPQQ50rdIWyipQeRl2bsO9dQ/viewform?usp=sharing)    |0.59294| 0.494231|0.139849|0.1952|/|
 | 3DLaneNet  |1.1| 44.1 | 40.8 | 46.5 | 47.5 | 41.5 | 32.1 | 41.7 |    -    | -|-| -|-|-|
 |**PersFormer**|1.1|**50.5**|**45.6**|**58.7**|**54.0**|**50.0**|**41.6**|**53.1**|[model](https://drive.google.com/file/d/1TwjmFB3p3luCG8ytZ4MEI-TMoDT2Vn3G/view?usp=share_link)  | 0.31897|0.3252|0.1115|0.14078|89.51|
 |**PersFormer**|1.2|**52.9**|**47.5**|**58.4**|**51.8**|**47.4**|**42.1**|**50.9**|[model](https://drive.google.com/file/d/1jtDfnxcNNbefgpYGfue1XlvcvtmfPZj7/view?usp=share_link)  | 0.2909|0.29429| 0.0800|0.11565|89.24|
@@ -73,9 +73,9 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
   
 | Method     | F1(%)  | Precision(%) | Recall(%) | CD error(m) |  Best model |
 | :----:     |:----:|:----:|:----:|:----:|:----:|    
-| 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 | - | 
-| GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  - | 
-| SALAD ([paper](https://arxiv.org/pdf/2205.00301.pdf) of ONCE 3DLanes )     | 64.07 | 75.90 | 55.42 | 0.098 | - | 
+| 3DLaneNet  | 44.73 | 61.46 | 35.16 | 0.127 | / | 
+| GenLaneNet | 45.59 | 63.95 | 35.42 | 0.121 |  / | 
+| SALAD ([paper](https://arxiv.org/pdf/2205.00301.pdf) of ONCE 3DLanes )     | 64.07 | 75.90 | 55.42 | 0.098 | / | 
 |**PersFormer**|**72.07**|**77.82**|**67.11**|**0.086**|  [model](https://drive.google.com/file/d/1jtDfnxcNNbefgpYGfue1XlvcvtmfPZj7/view?usp=share_link)| 
   
 
