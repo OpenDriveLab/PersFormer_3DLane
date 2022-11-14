@@ -46,8 +46,10 @@ def config(args):
     args.print_freq = 50
     args.save_freq = 50
 
+    args.no_tb = True
+    
     # data loader
-    args.nworkers = 0
+    args.nworkers = 4
     args.use_default_anchor = True
 
     # run the training
@@ -71,14 +73,14 @@ def config(args):
     args.loss_threshold = 1e5
 
     # # scheduler
-    # args.lr_policy = "cosine"
-    # args.T_max = 8
-    # args.eta_min = 1e-5
+    args.lr_policy = "cosine"
+    args.T_max = 8
+    args.eta_min = 1e-5
 
     # # optimizer
-    # args.optimizer = 'adam'
-    # args.learning_rate = 2e-4
-    # args.weight_decay = 0
+    args.optimizer = 'adam'
+    args.learning_rate = 2e-4
+    args.weight_decay = 0
 
     # # 3d loss, vis | prob | reg, default 1.0 | 1.0 | 1.0,  suggest 10.0 | 4.0 | 1.0
     # # used if not learnable_weight_on

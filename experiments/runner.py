@@ -139,7 +139,7 @@ class Runner:
         _S_im = torch.from_numpy(np.array([[args.resize_w,              0, 0],
                                                 [            0,  args.resize_h, 0],
                                                 [            0,              0, 1]], dtype=np.float32)).cuda()
-        if args.proc_id == 0:
+        if not args.no_tb and args.proc_id == 0:
             writer = self.writer
         vs_saver = self.vs_saver
 
@@ -183,7 +183,6 @@ class Runner:
             for i, (json_files, input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, aug_mat, seg_name, seg_bev_map) in tqdm(enumerate(train_loader)):
                 # Time dataloader
                 data_time.update(time.time() - end)
-
                 # Put inputs on gpu if possible
                 if not args.no_cuda:
                     input, gt = input.cuda(non_blocking=True), gt.cuda(non_blocking=True)
@@ -205,7 +204,6 @@ class Runner:
 
                 # Run model
                 optimizer.zero_grad()
-
                 if args.model_name == "PersFormer":
                     # Inference model
                     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
@@ -230,7 +228,6 @@ class Runner:
                     output1 = output1[:, 1:, :, :]
                     output_net = model2(output1, M_inv)
                     loss, loss_dict = criterion(output_net, gt)
-
                 if loss.data > args.loss_threshold:
                     print("Batch with idx {} skipped due to aug-caused too large loss".format(idx.numpy()))
                     loss.fill_(0.0)
@@ -240,7 +237,6 @@ class Runner:
 
                 # Setup backward pass
                 loss.backward()
-
                 # update params
                 optimizer.step()
 
@@ -270,7 +266,12 @@ class Runner:
 
             # loss terms need to be all reduced, eval_stats need to be all gather
             # Do them all in validate
-            loss_valid_list, eval_stats = self.validate(model, epoch, vis=False)
+            if args.model_name == "PersFormer":
+
+                loss_valid_list, eval_stats = self.validate(model, epoch, vis=False)
+            else:
+                loss_valid_list, eval_stats = self.validate(model1, model2, epoch, vis=False)
+
 
             # for Tensorboard
             if not args.no_tb and args.proc_id == 0:
@@ -304,6 +305,8 @@ class Runner:
                 print("===> Last best {}-loss was {:.8f} in epoch {}".format(self.crit_string, lowest_loss, best_epoch))
                 print("===> Last best F1 was {:.8f} in epoch {}".format(best_val_f1, best_f1_epoch))
 
+                if args.model_name == "GenLaneNet":
+                    model = model2
                 self.save_checkpoint({
                     'arch': args.mod,
                     'state_dict': model.module.state_dict(),
@@ -656,6 +659,7 @@ class Runner:
         args = self.args
         if 'openlane' in args.dataset_name:
             train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
+
         elif 'once' in args.dataset_name:
             train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train/'), args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
         else:
