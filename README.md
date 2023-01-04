@@ -2,11 +2,11 @@
 ![pipeline](imgs/pipeline.svg)  
 
 > **PersFormer: 3D Lane Detection via Perspective Transformer and the OpenLane Benchmark**  
-> Li Chen<sup>∗†</sup>, Chonghao Sima<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  Hongyang Li<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan. <sup>∗</sup> equal contributions.  <sup>†</sup> corresponding authors 
+> [Li Chen](https://scholar.google.com/citations?user=ulZxvY0AAAAJ&hl=en)<sup>∗†</sup>, [Chonghao Sima](https://scholar.google.com/citations?user=dgYJ6esAAAAJ&hl=en&oi=ao)<sup>∗</sup>, Yang Li<sup>∗</sup>, Zehan Zheng, Jiajie Xu, Xiangwei Geng,  [Hongyang Li](https://lihongyang.info/)<sup>†</sup>, Conghui He, Jianping Shi, Yu Qiao, Junchi Yan. <sup>∗</sup> equal contributions.  <sup>†</sup> corresponding authors 
 > 
 > - Paper: [arXiv 2203.11089](https://arxiv.org/abs/2203.11089), ECCV 2022 **Oral** Presentation (2.7% acceptance rate)  
 > - Third-party In-depth [Blog on Persformer](https://patrick-llgc.github.io/Learning-Deep-Learning/paper_notes/persformer.html) (recommended) 
-> - Our blog | Slides | Presentation video
+> - [Our blog](https://zhuanlan.zhihu.com/p/552908337) | [Slides](https://docs.google.com/presentation/d/1on8TmXQSXo0n-dI9voRUe5j8YNg2CfcmoP7esK0GuXI/edit?usp=sharing) | [Presentation video](https://www.youtube.com/watch?v=JJ84ttN4hBY) (4min) | [Online talk](https://app6ca5octe2206.pc.xiaoe-tech.com/p/t_pc/course_pc_detail/video/v_63311e31e4b0c942649a9314) (50min) | [Poster](https://drive.google.com/file/d/1aCc3yJkfjSSmtdXIicG4cov2f1EalbSX/view?usp=sharing)
 
 
 ## Introduction
