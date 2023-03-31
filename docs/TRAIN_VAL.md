@@ -71,16 +71,15 @@ laneline z error (close)  0.21318495 m
 laneline z error (far)  0.68114834 m
 ```
 
-For the newest result(updated on 2022-5-9):
+For the newest result(updated on 2023-03-31):
 ```
-===> Average loss_gflat-loss on training set is 7.14011097
-===> Average loss_gflat-loss on validation set is 18.50835419
-===> Evaluation laneline F-measure: 0.49003957
-===> Evaluation laneline Recall: 0.45885230
-===> Evaluation laneline Precision: 0.52577662
-===> Evaluation laneline Category Accuracy: 0.89028467
-===> Evaluation laneline x error (close): 0.32408248 m
-===> Evaluation laneline x error (far): 0.77043876 m
-===> Evaluation laneline z error (close): 0.21541502 m
-===> Evaluation laneline z error (far): 0.67630386 m
+===> Average loss_gflat-loss on validation set is 2871.47900391
+===> Evaluation laneline F-measure: 0.53070721
+===> Evaluation laneline Recall: 0.56460712
+===> Evaluation laneline Precision: 0.50064753
+===> Evaluation laneline Category Accuracy: 0.88992555
+===> Evaluation laneline x error (close): 0.36106585 m
+===> Evaluation laneline x error (far): 0.32781506 m
+===> Evaluation laneline z error (close): 0.12365869 m
+===> Evaluation laneline z error (far): 0.12945231 m  
 ```
