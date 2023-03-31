@@ -55,7 +55,7 @@ PersFormer is an end-to-end monocular 3D lane detector with a novel Transformer-
 | GenLaneNet |1.1| 32.3 | 25.4 | 33.5 | 28.1 | 18.7 | 21.4 | 31.0 |    -    |0.593| 0.494|0.140|0.195|/|
 | 3DLaneNet  |1.1| 44.1 | 40.8 | 46.5 | 47.5 | 41.5 | 32.1 | 41.7 |    -    | -|-| -|-|-|
 |**PersFormer**|1.1|**50.5**|**45.6**|**58.7**|**54.0**|**50.0**|**41.6**|**53.1**|[model](https://drive.google.com/file/d/1TwjmFB3p3luCG8ytZ4MEI-TMoDT2Vn3G/view?usp=share_link)  | 0.319|0.325|0.112|0.141|89.51|
-|**PersFormer**|1.2|**52.9**|**47.5**|**58.4**|**51.8**|**47.4**|**42.1**|**50.9**|[model](https://drive.google.com/file/d/1jtDfnxcNNbefgpYGfue1XlvcvtmfPZj7/view?usp=share_link)  | 0.291|0.294| 0.080|0.116|89.24|
+|**PersFormer**|1.2|**53.1**|**46.8**|**58.7**|**54.0**|**48.4**|**41.4**|**52.5**|[model](https://drive.google.com/file/d/1FHbko2ocdxZYaxfG8a7m9qJMtHHMmwGQ/view?usp=sharing)  | 0.361|0.328| 0.124|0.129|88.99|
 
   
   - 2D Lane Detection Results (**F-Score**) in [OpenLane](https://github.com/OpenPerceptionX/OpenLane). Note that the baseline of 2D branch in PersFormer is **LaneATT**.
