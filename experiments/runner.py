@@ -64,9 +64,12 @@ class Runner:
         # Get Dataset
         if args.proc_id == 0:
             print("Loading Dataset ...")
-        self.val_gt_file = ops.join(args.save_path, 'test.json')
+        self.val_gt_file = ops.join(args.data_dir, 'test.json')
         self.train_dataset, self.train_loader, self.train_sampler = self._get_train_dataset()
         self.valid_dataset, self.valid_loader, self.valid_sampler = self._get_valid_dataset()
+
+        if 'apollo' in args.dataset_name:
+            self.valid_set_labels = [json.loads(line) for line in open(self.val_gt_file).readlines()]
 
         # self.crit_string = 'loss_gflat'
         self.crit_string = args.crit_string
@@ -182,6 +185,7 @@ class Runner:
             # Start training loop
             for i, (json_files, input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, aug_mat, seg_name, seg_bev_map) in tqdm(enumerate(train_loader)):
                 # Time dataloader
+
                 data_time.update(time.time() - end)
                 # Put inputs on gpu if possible
                 if not args.no_cuda:
@@ -198,7 +202,10 @@ class Runner:
                 # print("gt_laneline_img: ", gt_laneline_img, torch.isnan(gt_laneline_img).any())
 
                 # update transformation based on gt extrinsic/intrinsic
-                M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
+                if args.dataset_name == 'apollo':
+                    M_inv, _, _ = unit_update_projection(args, gt_hcam, gt_pitch)
+                else:
+                    M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
                 # update transformation for data augmentation (only for training)
                 M_inv = unit_update_projection_for_data_aug(args, aug_mat, M_inv, _S_im_inv, _S_im)
 
@@ -214,11 +221,10 @@ class Runner:
                     loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
                                                                             cls_loss_weight=args.cls_loss_weight,
                                                                             reg_vis_loss_weight=args.reg_vis_loss_weight)
-                    # segmentation loss
+
                     loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
                     # overall loss
                     loss = self.compute_loss(args, epoch, loss_3d, loss_att, loss_seg, uncertainty_loss, loss_3d_dict, loss_att_dict)
-
                 elif args.model_name == "GenLaneNet":
                     output1 = model1(input, no_lane_exist=True)
                     with torch.no_grad():
@@ -267,7 +273,6 @@ class Runner:
             # loss terms need to be all reduced, eval_stats need to be all gather
             # Do them all in validate
             if args.model_name == "PersFormer":
-
                 loss_valid_list, eval_stats = self.validate(model, epoch, vis=False)
             else:
                 loss_valid_list, eval_stats = self.validate(model1, model2, epoch, vis=False)
@@ -332,6 +337,7 @@ class Runner:
         args = self.args
         loader = self.valid_loader
         dataset = self.valid_dataset
+
         criterion = self.criterion
         if not args.no_cuda:
             device = torch.device("cuda", args.local_rank)
@@ -361,6 +367,7 @@ class Runner:
         # Start validation loop
         with torch.no_grad():
             for i, (json_files, input, seg_maps, gt, gt_laneline_img, idx, gt_hcam, gt_pitch, gt_intrinsic, gt_extrinsic, seg_name, seg_bev_map) in tqdm(enumerate(loader)):
+                
                 if not args.no_cuda:
                     input, gt = input.cuda(non_blocking=True), gt.cuda(non_blocking=True)
                     seg_maps = seg_maps.cuda(non_blocking=True)
@@ -372,13 +379,16 @@ class Runner:
                     seg_bev_map = seg_bev_map.cuda()
                 input = input.contiguous().float()
 
-                M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
+                if args.dataset_name == 'apollo':
+                    M_inv, _, _ = unit_update_projection(args, gt_hcam, gt_pitch)
+                else:
+                    M_inv = unit_update_projection_extrinsic(args, gt_extrinsic, gt_intrinsic)
 
                 if args.model_name == "PersFormer":
                     # Inference model
                     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
 
-                    ## compute FPS
+                    # compute FPS
                     # iterations = 1000
                     # torch.cuda.synchronize()
                     # start = time.time()
@@ -386,7 +396,7 @@ class Runner:
                     #     laneatt_proposals_list, output_net, pred_hcam, pred_pitch, pred_seg_bev_map, uncertainty_loss = model(input=input, _M_inv=M_inv)
                     # torch.cuda.synchronize()
                     # end = time.time()
-                    # FPS = iterations / (end - start)
+                    # FPS = input.shape[0] * iterations / (end - start)
                     # print("FPS: ", FPS)
                     # break
 
@@ -396,6 +406,8 @@ class Runner:
                     loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
                                                                                 cls_loss_weight=args.cls_loss_weight,
                                                                                 reg_vis_loss_weight=args.reg_vis_loss_weight)
+                    
+
                     # segmentation loss
                     loss_seg = bceloss(pred_seg_bev_map, seg_bev_map)
                     # overall loss
@@ -445,7 +457,7 @@ class Runner:
                     output_net = nms_bev(output_net, args)
 
                 # Visualization
-                if ((i + 1) % args.save_freq == 0 or args.evaluate) and args.model_name == "PersFormer":
+                if ((i + 1) % args.save_freq == 0 or args.evaluate) and args.model_name == "PersFormer" and args.dataset_name != 'apollo':
                     gt_2d = []
                     for j in range(num_el):
                         gt_2d.append(dataset.label_to_lanes(gt_laneline_img[j]))
@@ -477,16 +489,19 @@ class Runner:
                     img_name_all = []
                     for j in range(num_el):
                         im_id = idx[j]
-                        # json_line = copy.deepcopy(valid_set_labels[im_id])
                         json_file = json_files[j]
-                        with open(json_file, 'r') as file:
-                            file_lines = [line for line in file]
-                            json_line = json.loads(file_lines[0])
+                        
                         if args.dataset_name == 'openlane':
-                                img_path = json_line["file_path"]
-                                img_name = os.path.basename(img_path)
-                                img_name_all.append(img_name)
+                            with open(json_file, 'r') as file:
+                                file_lines = [line for line in file]
+                                json_line = json.loads(file_lines[0])
+                            img_path = json_line["file_path"]
+                            img_name = os.path.basename(img_path)
+                            img_name_all.append(img_name)
                         elif args.dataset_name == 'once':
+                            with open(json_file, 'r') as file:
+                                file_lines = [line for line in file]
+                                json_line = json.loads(file_lines[0])
                             if 'once' in args.dataset_name:
                                 if 'train' in json_file:
                                     img_path = json_file.replace('train', 'data').replace('.json', '.jpg')
@@ -498,8 +513,9 @@ class Runner:
                             img_name = os.path.basename(img_path)
                             img_name_all.append(img_name)
 
+
                     # For the purpose of vis positive anchors
-                    if vis and (i + 1) % args.save_freq == 0:
+                    if vis and (i + 1) % args.save_freq == 0 and args.dataset_name != 'apollo':
                         anchors_positives = model.module.laneatt_head.anchors_to_lanes(loss_att_dict['anchors_positives'])
                         vs_saver.save_result_new(dataset, 'valid', epoch, idx,
                                                 input, gt, output_net, pred_pitch, pred_hcam,
@@ -507,15 +523,20 @@ class Runner:
                                                 laneatt_gt=gt_decoded_2d, laneatt_pred=pred_decoded_2d, laneatt_pos_anchor=anchors_positives,
                                                 intrinsics=gt_intrinsic, extrinsics=gt_extrinsic, seg_name=seg_name, img_name=img_name_all)
 
+                
                 # Write results
                 for j in range(num_el):
                     im_id = idx[j]
                     # saving json style
-                    # json_line = valid_set_labels[im_id]
                     json_file = json_files[j]
-                    with open(json_file, 'r') as file:
-                        file_lines = [line for line in file]
-                        json_line = json.loads(file_lines[0])
+
+                    if args.dataset_name == 'apollo':
+                        json_line = copy.deepcopy(self.valid_set_labels[im_id])
+                    else:
+                        with open(json_file, 'r') as file:
+                            file_lines = [line for line in file]
+                            json_line = json.loads(file_lines[0])
+
                     if 'once' in args.dataset_name:
                         if 'training' in json_file:
                             img_path = json_file.replace('training', 'data').replace('.json', '.jpg')
@@ -524,10 +545,12 @@ class Runner:
                         elif 'test' in json_file:
                             img_path = json_file.replace('test', 'data').replace('.json', '.jpg')
                         json_line["file_path"] = img_path
+                    elif 'apollo' in args.dataset_name:
+                        json_line["file_path"] = json_file
 
                     gt_lines_sub.append(copy.deepcopy(json_line))
-
                     lane_anchors = output_net[j]
+
                     # convert to json output format
                     if args.model_name == "PersFormer":
                         lanelines_pred, centerlines_pred, lanelines_prob, centerlines_prob = \
@@ -535,6 +558,7 @@ class Runner:
                     elif args.model_name == "GenLaneNet":
                         lanelines_pred, centerlines_pred, lanelines_prob, centerlines_prob = \
                             compute_3d_lanes_all_prob(lane_anchors, dataset, args.anchor_y_steps, gt_extrinsic[j][2,3])
+                    
                     json_line["laneLines"] = lanelines_pred
                     json_line["laneLines_prob"] = lanelines_prob
                     pred_lines_sub.append(copy.deepcopy(json_line))
@@ -553,9 +577,10 @@ class Runner:
             elif 'once' in args.dataset_name:
                 eval_stats = self.evaluator.lane_evaluation(args.data_dir+'test', './data_splits/once/PersFormer/once_pred/test', args.eval_config_dir, args)
             else:
-                eval_stats = self.evaluator.bench_one_submit(pred_lines_sub, gt_lines_sub, vis=False)
+                eval_stats = self.evaluator.bench_one_submit_apollo(pred_lines_sub, gt_lines_sub, 'apollo_model', vis=False)
 
-            if 'openlane' in args.dataset_name:
+            if 'openlane' in args.dataset_name or 'apollo' in args.dataset_name:
+
                 gather_output = [None for _ in range(args.world_size)]
                 # all_gather all eval_stats and calculate mean
                 dist.all_gather_object(gather_output, eval_stats)
@@ -590,7 +615,6 @@ class Runner:
                 eval_stats[5] = np.sum([eval_stats_sub[5] for eval_stats_sub in gather_output]) / args.world_size
                 eval_stats[6] = np.sum([eval_stats_sub[6] for eval_stats_sub in gather_output]) / args.world_size
                 eval_stats[7] = np.sum([eval_stats_sub[7] for eval_stats_sub in gather_output]) / args.world_size
-
                 return loss_list, eval_stats
             elif 'once' in args.dataset_name:
                 return loss_list, None
@@ -664,8 +688,7 @@ class Runner:
             train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train/'), args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
         else:
             train_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'train.json'), args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
-        
-        # train_dataset.normalize_lane_label()
+            train_dataset.normalize_lane_label()
         train_loader, train_sampler = get_loader(train_dataset, args)
 
         return train_dataset, train_loader, train_sampler
@@ -683,13 +706,14 @@ class Runner:
         elif 'once' in args.dataset_name:
             valid_dataset = LaneDataset(args.dataset_dir, ops.join(args.data_dir, 'test/'), args, seg_bev=args.seg_bev)
         else:
-            valid_dataset = LaneDataset(args.dataset_dir, self.val_gt_file, args)
+            valid_dataset = LaneDataset(args.dataset_dir, self.val_gt_file, args, seg_bev=args.seg_bev)
 
         # assign std of valid dataset to be consistent with train dataset
         valid_dataset.set_x_off_std(self.train_dataset._x_off_std)
         if not args.no_3d:
             valid_dataset.set_z_std(self.train_dataset._z_std)
-        # valid_dataset.normalize_lane_label()
+        if 'apollo' in args.dataset_name:
+            valid_dataset.normalize_lane_label()
         valid_loader, valid_sampler = get_loader(valid_dataset, args)
 
         return valid_dataset, valid_loader, valid_sampler
