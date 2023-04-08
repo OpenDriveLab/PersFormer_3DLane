@@ -705,20 +705,37 @@ class LaneDataset(Dataset):
         """
         Args: idx (int): Index in list to load image
         """
-        idx_json_file = self._label_list[idx]
         # preprocess data from json file
         if 'openlane' in self.dataset_name:
+            idx_json_file = self._label_list[idx]
             _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
                 _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
                 _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_openlane(idx_json_file)
         elif 'once' in self.dataset_name:
+            idx_json_file = self._label_list[idx]
             _label_image_path, _label_cam_height, _label_cam_pitch, cam_extrinsics, cam_intrinsics, \
                 _label_laneline, _label_laneline_org, _gt_laneline_visibility, _gt_laneline_category, \
                 _gt_laneline_category_org, _laneline_ass_id = self.preprocess_data_from_json_once(idx_json_file)
+        elif 'apollo' in self.dataset_name:
+            _label_image_path = self._label_image_path[idx]
+            _label_cam_height = self._label_cam_height_all[idx]
+            _label_cam_pitch = self._label_cam_pitch_all[idx]
+            _label_laneline = self._label_laneline_all[idx]
+            _label_laneline_org = self._label_laneline_all_org[idx]
+            _gt_laneline_visibility = self._gt_laneline_visibility_all[idx]
+            _gt_laneline_category = np.ones_like(self._gt_laneline_category_all[idx])
+            _gt_laneline_category_org = np.ones_like(self._gt_laneline_category_all_org[idx])
+            _laneline_ass_id = self._laneline_ass_ids[idx]
 
-        with open(idx_json_file, 'r') as file:
-            file_lines = [line for line in file]
-            info_dict = json.loads(file_lines[0])
+            cam_intrinsics = self.K
+            cam_extrinsics = np.zeros((3,4))
+            cam_extrinsics[2,3] = _label_cam_height
+            idx_json_file = _label_image_path.replace('images', 'labels').replace('jpg', 'txt')
+
+        if self.dataset_name in ['openlane', 'once']:
+            with open(idx_json_file, 'r') as file:
+                file_lines = [line for line in file]
+                info_dict = json.loads(file_lines[0])
 
         # fetch camera height and pitch
         if not self.fix_cam:
@@ -850,12 +867,12 @@ class LaneDataset(Dataset):
             for j in range(len(x_2d) - 1):
                 seg_label = cv2.line(seg_label,
                                      (int(x_2d[j]), int(y_2d[j])), (int(x_2d[j+1]), int(y_2d[j+1])),
-                                     color=np.asscalar(np.array([1])))
+                                     color=np.ndarray.item(np.array([1])))
         seg_label = torch.from_numpy(seg_label.astype(np.float32))
         seg_label.unsqueeze_(0)
 
         if len(gt_lanes) > self.max_lanes:
-            print(img_name + " has over 20 lanes")
+            print(img_name + " has over {} lanes".format(self.max_lanes))
             gt_laneline_img = gt_laneline_img[:self.max_lanes]
         gt_laneline_img = self.transform_annotation(gt_laneline_img, gt_category_2d, img_wh=(self.w_net, self.h_net))
         gt_laneline_img = torch.from_numpy(gt_laneline_img.astype(np.float32))
@@ -2405,7 +2422,7 @@ class LaneDataset(Dataset):
             lanes.append(Lane(points=points))
         return lanes
 
-    def draw_on_ipm_seg_bev(self, im_ipm, lane_anchor, draw_type='laneline', color=np.asscalar(np.array([1])), width=1):
+    def draw_on_ipm_seg_bev(self, im_ipm, lane_anchor, draw_type='laneline', color=np.ndarray.item(np.array([1])), width=1):
         for j in range(lane_anchor.shape[0]):
             # draw laneline
             # if draw_type is 'laneline' and lane_anchor[j, self.anchor_dim - 1] > self.prob_th:
