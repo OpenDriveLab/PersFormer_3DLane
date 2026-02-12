@@ -48,13 +48,16 @@ class Runner:
         if args.proc_id == 0:
             if not args.no_cuda and not torch.cuda.is_available():
                 raise Exception("No gpu available for usage")
-            if int(os.getenv('WORLD_SIZE', 1)) >= 1:
-                print("Let's use", os.environ['WORLD_SIZE'], "GPUs!")
+            # if int(os.getenv('WORLD_SIZE', 1)) >= 1:        # WORLD_SIZE = 参与训练的总进程数。单机多卡时，进程数等于GPU数量
+            if args.world_size >= 1:
+                print("Let's use", args.world_size , "GPUs!")
                 torch.cuda.empty_cache()
 
-        save_id = args.mod
+        save_id = args.mod      # 训练模型名称
+
+        # /root/autodl-tmp/projects/PersFormer_3DLane/data_splits/openlane
         args.save_json_path = args.save_path
-        args.save_path = os.path.join(args.save_path, save_id)
+        args.save_path = os.path.join(args.save_path, save_id)          # save_path 位置：data_splits/openlane/PersFormer/
         if args.proc_id == 0:
             mkdir_if_missing(args.save_path)
             mkdir_if_missing(os.path.join(args.save_path, 'example/'))
@@ -72,7 +75,10 @@ class Runner:
             self.valid_set_labels = [json.loads(line) for line in open(self.val_gt_file).readlines()]
 
         # self.crit_string = 'loss_gflat'
+        # crit_string损失准则:动态选择损失函数实例
+        # criterion：损失函数对象
         self.crit_string = args.crit_string
+        
         # Define loss criteria
         if self.crit_string == 'loss_gflat_3D':
             self.criterion = Loss_crit.Laneline_loss_gflat_3D(args.batch_size, self.train_dataset.num_types,
@@ -110,10 +116,17 @@ class Runner:
         train_sampler = self.train_sampler
 
         # Define model or resume
-        if args.model_name == "PersFormer":
-            model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_ddp()
-        elif args.model_name == "GenLaneNet":
-            model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_ddp()
+        # Choose model setup based on distributed flag
+        if args.dist:  # 多卡训练
+            if args.model_name == "PersFormer":
+                model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_multi_gpu()
+            elif args.model_name == "GenLaneNet":
+                model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_multi_gpu()
+        else:  # 单卡训练
+            if args.model_name == "PersFormer":
+                model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_single()
+            elif args.model_name == "GenLaneNet":
+                model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1 = self._get_model_single()
 
         criterion = self.criterion
         if not args.no_cuda:
@@ -218,7 +231,14 @@ class Runner:
                     # 3D loss
                     loss_3d, loss_3d_dict = criterion(output_net, gt, pred_hcam, gt_hcam, pred_pitch, gt_pitch)
                     # Add laneatt loss
-                    loss_att, loss_att_dict = model.module.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
+                    # 获取原始模型（无论是否 DDP）
+                    if hasattr(model, 'module'):
+                        # 多卡模式：model 是 DDP 包装的
+                        actual_model = model.module
+                    else:
+                        # 单卡模式：model 就是原始模型
+                        actual_model = model
+                    loss_att, loss_att_dict = actual_model.laneatt_head.loss(laneatt_proposals_list, gt_laneline_img,
                                                                             cls_loss_weight=args.cls_loss_weight,
                                                                             reg_vis_loss_weight=args.reg_vis_loss_weight)
 
@@ -682,6 +702,8 @@ class Runner:
     def _get_train_dataset(self):
         args = self.args
         if 'openlane' in args.dataset_name:
+            # args.dataset_dir = '/root/autodl-tmp/dataset/openlane-v1.0/images/'
+            # args.data_dir = '/root/autodl-tmp/dataset/openlane-v1.0/lane3d_1000/'
             train_dataset = LaneDataset(args.dataset_dir, args.data_dir + 'training/', args, data_aug=True, save_std=True, seg_bev=args.seg_bev)
 
         elif 'once' in args.dataset_name:
@@ -736,6 +758,53 @@ class Runner:
             cnt += 1
         print('#reused param: {}'.format(cnt))
         return model
+    def _get_model_single(self):
+        args = self.args
+        device = torch.device("cuda" if not args.no_cuda and torch.cuda.is_available() else "cpu")
+
+        # Define network
+        if args.model_name == "PersFormer":
+            model = PersFormer(args)
+            model = model.to(device)
+        elif args.model_name == "GenLaneNet":
+            model1 = erfnet.ERFNet(args.num_class)
+            model2 = GeoNet3D_ext.Net(args, input_dim=args.num_class - 1)
+            define_init_weights(model2, args.weight_init)
+            model1 = model1.to(device)
+            model2 = model2.to(device)
+
+        # Logging setup
+        best_epoch = 0
+        lowest_loss = np.inf
+        best_f1_epoch = 0
+        best_val_f1 = -1e-5
+
+        # Resume or pretrained (only for PersFormer in single mode)
+        if args.resume:
+            # 注意：单卡 resume 不需要 dist.barrier
+            model, best_epoch, lowest_loss, best_f1_epoch, best_val_f1, _, _ = self.resume_model(args, model)
+        elif args.pretrained and args.model_name == "PersFormer":
+            path = 'models/pretrain/model_pretrain.pth.tar'
+            if os.path.isfile(path):
+                checkpoint = torch.load(path, map_location=device)
+                model.load_state_dict(checkpoint['state_dict'])
+                print(f"Use pretrained model in {path}")
+            else:
+                raise FileNotFoundError(f"No pretrained model found in {path}")
+
+        # Optimizer & Scheduler
+        if args.model_name == "PersFormer":
+            optimizer = define_optim(args.optimizer, model.parameters(),
+                                    args.learning_rate, args.weight_decay)
+        elif args.model_name == "GenLaneNet":
+            optimizer = define_optim(args.optimizer, model2.parameters(),
+                                    args.learning_rate, args.weight_decay)
+        scheduler = define_scheduler(optimizer, args)
+
+        if args.model_name == "PersFormer":
+            return model, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
+        elif args.model_name == "GenLaneNet":
+            return model1, model2, optimizer, scheduler, best_epoch, lowest_loss, best_f1_epoch, best_val_f1
 
     def _get_model_ddp(self):
         args = self.args
@@ -912,40 +981,57 @@ class Runner:
         return loss
 
     def reduce_all_loss(self, args, loss_list, loss, loss_3d_dict, loss_att_dict, num):
-        reduced_loss = loss.data
-        reduced_loss_all = reduce_tensors(reduced_loss, world_size=args.world_size)
-        losses = loss_list[0]
-        losses.update(to_python_float(reduced_loss_all), num)
+        if args.dist:
+            # 多卡：进行分布式 reduce
+            reduced_loss = reduce_tensors(loss.data, world_size=args.world_size)
+            losses = loss_list[0]
+            losses.update(to_python_float(reduced_loss), num)
 
-        reduced_vis_loss = loss_3d_dict['vis_loss'].data
-        reduced_vis_loss = reduce_tensors(reduced_vis_loss, world_size=args.world_size)
-        losses_3d_vis = loss_list[1]
-        losses_3d_vis.update(to_python_float(reduced_vis_loss), num)
+            reduced_vis_loss = reduce_tensors(loss_3d_dict['vis_loss'].data, world_size=args.world_size)
+            losses_3d_vis = loss_list[1]
+            losses_3d_vis.update(to_python_float(reduced_vis_loss), num)
 
-        reduced_prob_loss = loss_3d_dict['prob_loss'].data
-        reduced_prob_loss = reduce_tensors(reduced_prob_loss, world_size=args.world_size)
-        losses_3d_prob = loss_list[2]
-        losses_3d_prob.update(to_python_float(reduced_prob_loss), num)
+            reduced_prob_loss = reduce_tensors(loss_3d_dict['prob_loss'].data, world_size=args.world_size)
+            losses_3d_prob = loss_list[2]
+            losses_3d_prob.update(to_python_float(reduced_prob_loss), num)
 
-        reduced_reg_loss = loss_3d_dict['reg_loss'].data
-        reduced_reg_loss = reduce_tensors(reduced_reg_loss, world_size=args.world_size)
-        losses_3d_reg = loss_list[3]
-        losses_3d_reg.update(to_python_float(reduced_reg_loss), num)
+            reduced_reg_loss = reduce_tensors(loss_3d_dict['reg_loss'].data, world_size=args.world_size)
+            losses_3d_reg = loss_list[3]
+            losses_3d_reg.update(to_python_float(reduced_reg_loss), num)
 
-        reduce_2d_vis_loss = loss_att_dict['vis_loss'].data
-        reduce_2d_vis_loss = reduce_tensors(reduce_2d_vis_loss, world_size=args.world_size)
-        losses_2d_vis = loss_list[4]
-        losses_2d_vis.update(to_python_float(reduce_2d_vis_loss), num)
+            reduce_2d_vis_loss = reduce_tensors(loss_att_dict['vis_loss'].data, world_size=args.world_size)
+            losses_2d_vis = loss_list[4]
+            losses_2d_vis.update(to_python_float(reduce_2d_vis_loss), num)
 
-        reduced_2d_cls_loss = loss_att_dict['cls_loss'].data
-        reduced_2d_cls_loss = reduce_tensors(reduced_2d_cls_loss, world_size=args.world_size)
-        losses_2d_cls = loss_list[5]
-        losses_2d_cls.update(to_python_float(reduced_2d_cls_loss), num)
+            reduced_2d_cls_loss = reduce_tensors(loss_att_dict['cls_loss'].data, world_size=args.world_size)
+            losses_2d_cls = loss_list[5]
+            losses_2d_cls.update(to_python_float(reduced_2d_cls_loss), num)
 
-        reduced_2d_reg_loss = loss_att_dict['reg_loss'].data
-        reduced_2d_reg_loss = reduce_tensors(reduced_2d_reg_loss, world_size=args.world_size)
-        losses_2d_reg = loss_list[6]
-        losses_2d_reg.update(to_python_float(reduced_2d_reg_loss), num)
+            reduced_2d_reg_loss = reduce_tensors(loss_att_dict['reg_loss'].data, world_size=args.world_size)
+            losses_2d_reg = loss_list[6]
+            losses_2d_reg.update(to_python_float(reduced_2d_reg_loss), num)
+        else:
+            # 单卡：直接使用本地 loss，不 reduce
+            losses = loss_list[0]
+            losses.update(to_python_float(loss.data), num)
+
+            losses_3d_vis = loss_list[1]
+            losses_3d_vis.update(to_python_float(loss_3d_dict['vis_loss'].data), num)
+
+            losses_3d_prob = loss_list[2]
+            losses_3d_prob.update(to_python_float(loss_3d_dict['prob_loss'].data), num)
+
+            losses_3d_reg = loss_list[3]
+            losses_3d_reg.update(to_python_float(loss_3d_dict['reg_loss'].data), num)
+
+            losses_2d_vis = loss_list[4]
+            losses_2d_vis.update(to_python_float(loss_att_dict['vis_loss'].data), num)
+
+            losses_2d_cls = loss_list[5]
+            losses_2d_cls.update(to_python_float(loss_att_dict['cls_loss'].data), num)
+
+            losses_2d_reg = loss_list[6]
+            losses_2d_reg.update(to_python_float(loss_att_dict['reg_loss'].data), num)
 
         return loss_list
 

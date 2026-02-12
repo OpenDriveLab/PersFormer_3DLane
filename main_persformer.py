@@ -18,6 +18,7 @@ import os
 from config import persformer_openlane, persformer_once, persformer_apollo
 from utils.utils import *
 from experiments.ddp import *
+from experiments.single_gpu import *
 from experiments.runner import *
 
 
@@ -30,7 +31,11 @@ def main():
     # persformer_once.config(args)
     persformer_openlane.config(args)
     # initialize distributed data parallel set
-    ddp_init(args)
+    if args.distributed:
+        ddp_init(args)
+    else:
+        init_single_gpu(args)
+
     # define runner to begin training or evaluation
     runner = Runner(args)
     # args.evaluate = True

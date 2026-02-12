@@ -42,14 +42,14 @@ matplotlib.use('Agg')
 
 class LaneDataset(Dataset):
     """
-    Dataset with labeled lanes
-        This implementation considers:
-        w/o laneline 3D attributes
-        w/o centerline annotations
-        default considers 3D laneline, including centerlines
+    带标注车道线的数据集
+    本实现考虑：
+    不含车道线的3D属性
+    不含中心线标注
+    默认考虑3D车道线，包括中心线
 
-        This new version of data loader prepare ground-truth anchor tensor in flat ground space.
-        It is assumed the dataset provides accurate visibility labels. Preparing ground-truth tensor depends on it.
+    这个新版本的数据加载器在平地空间中准备真实锚点张量。
+    假设数据集提供了准确的可见性标签。准备真实张量依赖于这些标签。
     """
     # dataset_base_dir is image path, json_file_path is json file path,
     def __init__(self, dataset_base_dir, json_file_path, args, data_aug=False, save_std=False, seg_bev=False):
@@ -97,7 +97,7 @@ class LaneDataset(Dataset):
 
         self.K = args.K
         self.H_crop = homography_crop_resize([args.org_h, args.org_w], args.crop_y, [args.resize_h, args.resize_w])
-        # transformation from ipm to ground region
+        # 从 IPM 到地面区域的转换
         self.H_ipm2g = cv2.getPerspectiveTransform(np.float32([[0, 0],
                                                                [self.ipm_w-1, 0],
                                                                [0, self.ipm_h-1],
@@ -263,7 +263,7 @@ class LaneDataset(Dataset):
 
         self.save_json_path = args.save_json_path
 
-        # parse ground-truth file
+        # 解析真实数据文件
         if 'openlane' in self.dataset_name:
             self._x_off_std, \
                 self._y_off_std, \
@@ -529,6 +529,7 @@ class LaneDataset(Dataset):
         _laneline_ass_id = None
 
         with open(idx_json_file, 'r') as file:
+            # idx_json_file：具体的JSON文件
             file_lines = [line for line in file]
             info_dict = json.loads(file_lines[0])
 
@@ -539,12 +540,15 @@ class LaneDataset(Dataset):
             if not self.fix_cam:
                 cam_extrinsics = np.array(info_dict['extrinsic'])
                 # Re-calculate extrinsic matrix based on ground coordinate
+                # 绕Z轴旋转-90°的矩阵
                 R_vg = np.array([[0, 1, 0],
                                     [-1, 0, 0],
                                     [0, 0, 1]], dtype=float)
+                # 绕X轴旋转-90°的矩阵
                 R_gc = np.array([[1, 0, 0],
                                     [0, 0, 1],
                                     [0, -1, 0]], dtype=float)
+                # 坐标系的相似变换加上一个坐标轴重新定向
                 cam_extrinsics[:3, :3] = np.matmul(np.matmul(
                                             np.matmul(np.linalg.inv(R_vg), cam_extrinsics[:3, :3]),
                                                 R_vg), R_gc)
@@ -700,7 +704,7 @@ class LaneDataset(Dataset):
         """
         return self.n_samples
 
-    # new getitem, WIP
+    # 新的getitem，进行中
     def WIP__getitem__(self, idx):
         """
         Args: idx (int): Index in list to load image
@@ -790,6 +794,13 @@ class LaneDataset(Dataset):
         # image preprocess with crop and resize
         image = F.crop(image, self.h_crop, 0, self.h_org-self.h_crop, self.w_org)
         image = F.resize(image, size=(self.h_net, self.w_net), interpolation=InterpolationMode.BILINEAR)
+
+        # Debug：Visualize resize image
+        import matplotlib.pyplot as plt
+        import numpy as np
+        plt.imshow(np.array(image))
+        plt.title(f'缩放后: {image.size}')
+        plt.show()
 
         gt_anchor = np.zeros([self.anchor_num, self.num_types, self.anchor_dim], dtype=np.float32)
         gt_anchor[:, :, self.anchor_dim - self.num_category] = 1.0
@@ -1193,12 +1204,15 @@ class LaneDataset(Dataset):
     def init_dataset_openlane_beta(self, dataset_base_dir, json_file_path):
         """
         :param dataset_info_file:
-        :return: image paths, labels in unormalized net input coordinates
+        :return: 图像路径，标签在未归一化的网络输入坐标中
 
-        data processing:
-        ground truth labels map are scaled wrt network input sizes
+        数据处理：
+        真值标签映射相对于网络输入尺寸进行缩放
         """
+        # args.dataset_dir = '/root/autodl-tmp/dataset/openlane-v1.0/images/'
+        # args.data_dir = '/root/autodl-tmp/dataset/openlane-v1.0/lane3d_1000/training/'
 
+        # 返回所有匹配文件完整路径的列表，赋值给 label_list 变量
         label_list = glob.glob(json_file_path + '**/*.json', recursive=True)
 
         # save label list and this determine the idx order
@@ -1277,6 +1291,8 @@ class LaneDataset(Dataset):
                 file_lines = [line for line in file]
                 info_dict = json.loads(file_lines[0])
 
+                # args.dataset_dir = '/root/autodl-tmp/dataset/openlane-v1.0/images/'
+                # file_path	"training/segment-15832924468527961_1564_160_1584_160_with_camera_labels/150767882687643500.jpg"
                 image_path = ops.join(dataset_base_dir, info_dict['file_path'])
                 assert ops.exists(image_path), '{:s} not exist'.format(image_path)
 
@@ -2499,7 +2515,7 @@ def seed_worker(worker_id):
 def get_loader(transformed_dataset, args):
     """
         create dataset from ground-truth
-        return a batch sampler based ont the dataset
+        return a batch sampler based on the dataset
     """
 
     # transformed_dataset = LaneDataset(dataset_base_dir, json_file_path, args)
@@ -2554,9 +2570,9 @@ def get_loader(transformed_dataset, args):
                                 worker_init_fn=seed_worker,
                                 generator=g)
 
-    if args.dist:
-        return data_loader, data_sampler
-    return data_loader
+    
+    return data_loader, data_sampler
+    
 
 
 def compute_2d_lanes(pred_anchor, h_samples, H_g2im, anchor_x_steps, anchor_y_steps, x_min, x_max, prob_th=0.5):

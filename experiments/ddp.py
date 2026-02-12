@@ -23,13 +23,19 @@ import numpy as np
 import random
 
 def setup_dist_launch(args):
+    # 通过launch.json 文件中定义的PyTorch分布式启动器动态获取进程ID
     args.proc_id = args.local_rank
-    world_size = int(os.getenv('WORLD_SIZE', 1))*args.nodes
+    # 包含隐形错误，pytorch分布式launch模块已为WORLD_SIZE分配值为总进程数 = args.nnodes * args.nproc_per_node
+    
+
+    # 通过launch.json 文件中定义的PyTorch分布式启动器获取总进程数
+    # world_size = int(os.getenv('WORLD_SIZE', 1))*args.nodes       
+    args.world_size = int(os.environ['WORLD_SIZE'])
     print("proc_id: " + str(args.proc_id))
-    print("world size: " + str(world_size))
+    print("world size: " + str(args.world_size))
     print("local_rank: " + str(args.local_rank))
 
-    os.environ['WORLD_SIZE'] = str(world_size)
+    os.environ['WORLD_SIZE'] = str(args.world_size)
     os.environ['RANK'] = str(args.proc_id)
     os.environ['LOCAL_RANK'] = str(args.local_rank)
 

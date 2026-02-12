@@ -123,7 +123,7 @@ def define_args():
     parser.add_argument('--print_freq', type=int, default=500, help='padding')
     parser.add_argument('--save_freq', type=int, default=500, help='padding')
     # DDP setting
-    parser.add_argument('--distributed', action='store_true')
+    parser.add_argument('--distributed', action='store_true', help="Use DDP for training")
     parser.add_argument("--local_rank", type=int)
     parser.add_argument('--gpu', type=int, default = 0)
     parser.add_argument('--world_size', type=int, default = 1)
@@ -739,11 +739,11 @@ def prune_3d_lane_by_range(lane_3d, x_min, x_max):
 
 def resample_laneline_in_y(input_lane, y_steps, out_vis=False):
     """
-        Interpolate x, z values at each anchor grid, including those beyond the range of input lnae y range
-    :param input_lane: N x 2 or N x 3 ndarray, one row for a point (x, y, z-optional).
-                       It requires y values of input lane in ascending order
-    :param y_steps: a vector of steps in y
-    :param out_vis: whether to output visibility indicator which only depends on input y range
+        在每个锚点网格上插值 x、z 值，包括输入车道 y 范围之外的值
+    :param input_lane: N x 2 或 N x 3 ndarray，每行表示一个点 (x, y, z-可选)。
+                       要求输入车道的 y 值按升序排列
+    :param y_steps: y 方向的步长向量
+    :param out_vis: 是否输出可见性标志，该标志仅依赖输入 y 范围
     :return:
     """
 
@@ -756,6 +756,7 @@ def resample_laneline_in_y(input_lane, y_steps, out_vis=False):
     if input_lane.shape[1] < 3:
         input_lane = np.concatenate([input_lane, np.zeros([input_lane.shape[0], 1], dtype=np.float32)], axis=1)
 
+    # TODO 插值方法是否可以改变？scipy.interpolate.interp1d默认是linear
     f_x = interp1d(input_lane[:, 1], input_lane[:, 0], fill_value="extrapolate")
     f_z = interp1d(input_lane[:, 1], input_lane[:, 2], fill_value="extrapolate")
 
@@ -916,13 +917,13 @@ def homographic_transformation(Matrix, x, y):
 
 def projective_transformation(Matrix, x, y, z):
     """
-    Helper function to transform coordinates defined by transformation matrix
+    用于通过变换矩阵转换坐标的辅助函数
 
-    Args:
-            Matrix (multi dim - array): 3x4 projection matrix
-            x (array): original x coordinates
-            y (array): original y coordinates
-            z (array): original z coordinates
+参数：
+    Matrix (多维数组)：3x4 投影矩阵
+    x (数组)：原始 x 坐标
+    y (数组)：原始 y 坐标
+    z (数组)：原始 z 坐标
     """
     ones = np.ones((1, len(z)))
     coordinates = np.vstack((x, y, z, ones))

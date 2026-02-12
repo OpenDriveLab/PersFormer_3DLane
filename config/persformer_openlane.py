@@ -27,8 +27,8 @@ def config(args):
 
     # 1000 sequence
     args.dataset_name = 'openlane'
-    args.dataset_dir = '/mnt/disk01/openlane/images/'
-    args.data_dir = '/mnt/disk01/openlane/lane3d_1000/'
+    args.dataset_dir = '/home/czy/Datasets/openlane1.2/images/'
+    args.data_dir = '/home/czy/Datasets/openlane1.2/lane3d_1000/'
 
     if 'openlane' in args.dataset_name:
         openlane_config(args)
@@ -121,7 +121,8 @@ def config(args):
     args.num_y_steps = len(args.anchor_y_steps)
 
     # ddp related
-    args.dist = True
+    # args.dist = True
+    args.dist = False
     args.sync_bn = True
 
     args.cudnn = True
